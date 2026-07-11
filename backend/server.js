@@ -33,9 +33,8 @@ const pool = new Pool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  // Une instance locale (dev) n'a généralement pas SSL activé ; Supabase en a besoin.
+  ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false }
 });
 
 pool.on('error', (err) => {

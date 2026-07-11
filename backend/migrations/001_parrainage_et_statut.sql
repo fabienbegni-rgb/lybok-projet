@@ -12,9 +12,16 @@ ALTER TABLE membres
   ADD COLUMN IF NOT EXISTS parrain1_id       UUID REFERENCES membres(id),
   ADD COLUMN IF NOT EXISTS parrain2_id       UUID REFERENCES membres(id);
 
-ALTER TABLE membres
-  ADD CONSTRAINT IF NOT EXISTS membres_statut_check
-  CHECK (statut IN ('actif', 'en_attente', 'refuse', 'suspendu', 'exclu'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'membres_statut_check'
+  ) THEN
+    ALTER TABLE membres
+      ADD CONSTRAINT membres_statut_check
+      CHECK (statut IN ('actif', 'en_attente', 'refuse', 'suspendu', 'exclu'));
+  END IF;
+END $$;
 
 -- Les membres déjà existants (créés avant cette migration) restent 'actif'
 -- par défaut — seuls les nouveaux dossiers d'inscription passeront par
