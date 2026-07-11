@@ -9,7 +9,7 @@ services:
     name: lybok
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build && mkdir -p backend/public && cp dist/index.html backend/public/index.html && cd backend && npm install
+    buildCommand: npm install --include=dev && npm run build && mkdir -p backend/public && cp dist/index.html backend/public/index.html && cd backend && npm install --include=dev
     startCommand: node backend/server.js
     healthCheckPath: /api
     envVars:
