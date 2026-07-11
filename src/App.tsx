@@ -108,6 +108,10 @@ function LoginPage({ onLogin }: { onLogin: (user: typeof currentUser) => void })
   const [rNom,       setRNom]       = useState('');
   const [rEmail,     setREmail]     = useState('');
   const [rTel,       setRTel]       = useState('');
+  const [rVille,     setRVille]     = useState('');
+  const [rDomaine,   setRDomaine]   = useState('');
+  const [rParrain1,  setRParrain1]  = useState('');
+  const [rParrain2,  setRParrain2]  = useState('');
   const [rPwd,       setRPwd]       = useState('');
   const [rPwdC,      setRPwdC]      = useState('');
   const [showRPwd,   setShowRPwd]   = useState(false);
@@ -159,9 +163,14 @@ function LoginPage({ onLogin }: { onLogin: (user: typeof currentUser) => void })
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRError('');
-    if (!rNom || !rPrenom || !rEmail || !rPwd) { setRError('Tous les champs * sont obligatoires.'); return; }
+    if (!rNom || !rPrenom || !rEmail || !rVille || !rDomaine || !rPwd) { setRError('Tous les champs * sont obligatoires.'); return; }
     if (rPwd !== rPwdC)  { setRError('Les mots de passe ne correspondent pas.'); return; }
     if (rPwd.length < 6) { setRError('Mot de passe trop court (min. 6 caractères).'); return; }
+    const p1 = rParrain1.trim().toLowerCase();
+    const p2 = rParrain2.trim().toLowerCase();
+    if (!p1 || !p2) { setRError('Deux parrains (membres déjà actifs) sont obligatoires.'); return; }
+    if (p1 === p2) { setRError('Les deux parrains doivent être différents.'); return; }
+    if (p1 === rEmail.trim().toLowerCase() || p2 === rEmail.trim().toLowerCase()) { setRError('Vous ne pouvez pas être votre propre parrain.'); return; }
     setRLoading(true);
     try {
       const res  = await fetch('http://localhost:3001/api/auth/register', {
@@ -171,13 +180,17 @@ function LoginPage({ onLogin }: { onLogin: (user: typeof currentUser) => void })
           nom: rNom.trim(), prenom: rPrenom.trim(),
           email: rEmail.trim().toLowerCase(),
           telephone: rTel.trim() || null,
+          ville: rVille.trim(),
+          domaine_activite: rDomaine.trim(),
+          parrain1_email: p1,
+          parrain2_email: p2,
           password: rPwd, mot_de_passe: rPwd,
         }),
       });
       const data = await res.json();
       if (res.ok) {
-        setRSuccess(`Membre ${rPrenom} ${rNom} créé avec succès !`);
-        setTimeout(() => { setTab('login'); setEmail(rEmail); setRSuccess(''); }, 2500);
+        setRSuccess(`Dossier de ${rPrenom} ${rNom} soumis avec succès, avec vos deux parrainages. Il sera examiné par le bureau avant activation du compte.`);
+        setTimeout(() => { setTab('login'); setEmail(rEmail); setRSuccess(''); }, 4000);
       } else {
         setRError(data.error || data.message || `Erreur ${res.status}`);
       }
@@ -433,6 +446,46 @@ function LoginPage({ onLogin }: { onLogin: (user: typeof currentUser) => void })
                   onFocus={e => { e.target.style.borderColor='#1a8f5c'; e.target.style.boxShadow='0 0 0 3px rgba(26,143,92,0.12)'; e.target.style.background='#fff'; }}
                   onBlur={e  => { e.target.style.borderColor='#d1d9e0'; e.target.style.boxShadow='none'; e.target.style.background='#f8f9fa'; }}
                 />
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:14 }}>
+                <div>
+                  <label style={labelStyle}>Ville <span style={{ color:'#1a8f5c' }}>*</span></label>
+                  <input
+                    value={rVille} onChange={e => setRVille(e.target.value)}
+                    placeholder="Bokito" style={inputStyle} required
+                    onFocus={e => { e.target.style.borderColor='#1a8f5c'; e.target.style.boxShadow='0 0 0 3px rgba(26,143,92,0.12)'; e.target.style.background='#fff'; }}
+                    onBlur={e  => { e.target.style.borderColor='#d1d9e0'; e.target.style.boxShadow='none'; e.target.style.background='#f8f9fa'; }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Domaine d'activité <span style={{ color:'#1a8f5c' }}>*</span></label>
+                  <input
+                    value={rDomaine} onChange={e => setRDomaine(e.target.value)}
+                    placeholder="Commerce, santé, informatique..." style={inputStyle} required
+                    onFocus={e => { e.target.style.borderColor='#1a8f5c'; e.target.style.boxShadow='0 0 0 3px rgba(26,143,92,0.12)'; e.target.style.background='#fff'; }}
+                    onBlur={e  => { e.target.style.borderColor='#d1d9e0'; e.target.style.boxShadow='none'; e.target.style.background='#f8f9fa'; }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom:14 }}>
+                <label style={labelStyle}>Parrainage <span style={{ color:'#1a8f5c' }}>*</span></label>
+                <p style={{ fontSize:11, color:'#9aa5b4', marginTop:0, marginBottom:8 }}>Deux membres déjà actifs doivent se porter garants. Votre dossier restera en attente jusqu'à validation par le bureau.</p>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                  <input
+                    type="email" value={rParrain1} onChange={e => setRParrain1(e.target.value)}
+                    placeholder="Email parrain 1" style={inputStyle} required
+                    onFocus={e => { e.target.style.borderColor='#1a8f5c'; e.target.style.boxShadow='0 0 0 3px rgba(26,143,92,0.12)'; e.target.style.background='#fff'; }}
+                    onBlur={e  => { e.target.style.borderColor='#d1d9e0'; e.target.style.boxShadow='none'; e.target.style.background='#f8f9fa'; }}
+                  />
+                  <input
+                    type="email" value={rParrain2} onChange={e => setRParrain2(e.target.value)}
+                    placeholder="Email parrain 2" style={inputStyle} required
+                    onFocus={e => { e.target.style.borderColor='#1a8f5c'; e.target.style.boxShadow='0 0 0 3px rgba(26,143,92,0.12)'; e.target.style.background='#fff'; }}
+                    onBlur={e  => { e.target.style.borderColor='#d1d9e0'; e.target.style.boxShadow='none'; e.target.style.background='#f8f9fa'; }}
+                  />
+                </div>
               </div>
 
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
@@ -915,24 +968,20 @@ function AidsPage() {
 function MembersPage() {
   return (
     <div className="space-y-6">
+      <p className="text-sm text-gray-400">Annuaire du réseau — seules les informations utiles au réseau sont visibles ici (voir la politique de confidentialité).</p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {members.map(member => {
-          const mc = contributions.filter(c => c.userId === member.id);
-          const isPaid = mc.some(c => c.month==='Janvier' && c.year===2024 && c.status==='paid');
-          return (
-            <div key={member.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 hover:shadow-xl transition-all hover:-translate-y-0.5">
-              <div className="flex items-center space-x-4 mb-4">
-                <div className="w-14 h-14 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-xl flex items-center justify-center text-3xl">{member.avatar}</div>
-                <div><h3 className="font-bold text-gray-800">{member.name}</h3><p className="text-xs text-gray-400">{member.email}</p>{member.role==='admin'&&<span className="inline-block bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded-full mt-1 font-semibold">👑 Admin</span>}</div>
-              </div>
-              <div className="border-t border-gray-100 pt-4 space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-gray-400">Cotisations</span><span className="font-semibold">{mc.length}</span></div>
-                <div className="flex justify-between"><span className="text-gray-400">Mois en cours</span><span className={`font-semibold ${isPaid?'text-emerald-600':'text-orange-600'}`}>{isPaid?'✅ À jour':'⏳ En attente'}</span></div>
-                <div className="flex justify-between"><span className="text-gray-400">Depuis</span><span className="font-medium text-gray-600">{member.joinDate}</span></div>
+        {members.map(member => (
+          <div key={member.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 hover:shadow-xl transition-all hover:-translate-y-0.5">
+            <div className="flex items-center space-x-4">
+              <div className="w-14 h-14 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-xl flex items-center justify-center text-3xl">{member.avatar}</div>
+              <div>
+                <h3 className="font-bold text-gray-800">{member.name}</h3>
+                <p className="text-xs text-gray-400">{member.activityDomain}</p>
+                <p className="text-xs text-gray-400">📍 {member.city}</p>
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );

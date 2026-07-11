@@ -113,15 +113,24 @@ app.post('/api/auth/login', async function(req, res) {
     );
     var m = result.rows[0];
     if (!m) return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
-    
+
     var valid = false;
     try { valid = await bcrypt.compare(password, m.mot_de_passe); } catch(e) {}
     if (!valid && DEMO_MODE && password === 'demo1234') valid = true;
     if (!valid) {
       return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
     }
-    
-    var token = jwt.sign({ 
+
+    // Un dossier en attente de parrainage/validation par le bureau ne peut pas se connecter.
+    var statut = m.statut || 'actif'; // comptes créés avant l'ajout de la colonne = actifs par défaut
+    if (statut === 'en_attente') {
+      return res.status(403).json({ error: 'Votre dossier est en attente de validation par le bureau.' });
+    }
+    if (statut === 'refuse') {
+      return res.status(403).json({ error: 'Votre demande d\'adhésion a été refusée par le bureau.' });
+    }
+
+    var token = jwt.sign({
       id: m.id, 
       email: m.email, 
       role: m.role, 
@@ -149,45 +158,125 @@ app.post('/api/auth/login', async function(req, res) {
 
 // POST /api/auth/register
 app.post('/api/auth/register', async function(req, res) {
-  var nom        = req.body.nom;
-  var prenom     = req.body.prenom || '';
-  var email      = (req.body.email || '').trim().toLowerCase();
-  var telephone  = req.body.telephone || null;
-  var password   = req.body.password || req.body.mot_de_passe;
+  var nom             = req.body.nom;
+  var prenom          = req.body.prenom || '';
+  var email           = (req.body.email || '').trim().toLowerCase();
+  var telephone       = req.body.telephone || null;
+  var ville           = req.body.ville || null;
+  var domaineActivite = req.body.domaine_activite || null;
+  var parrain1Email   = (req.body.parrain1_email || '').trim().toLowerCase();
+  var parrain2Email   = (req.body.parrain2_email || '').trim().toLowerCase();
+  var password        = req.body.password || req.body.mot_de_passe;
   // L'inscription publique ne peut créer que des membres standards.
   // La promotion admin/trésorier se fait ensuite via PUT /api/membres/:id (réservé admin/trésorier).
-  var role       = 'membre';
+  var role            = 'membre';
 
-  if (!nom || !email || !password) return res.status(400).json({ error: 'nom, email et password obligatoires.' });
+  if (!nom || !email || !password || !ville || !domaineActivite) {
+    return res.status(400).json({ error: 'nom, email, password, ville et domaine_activite sont obligatoires.' });
+  }
+  if (!parrain1Email || !parrain2Email) {
+    return res.status(400).json({ error: 'Deux parrains (parrain1_email, parrain2_email) sont obligatoires.' });
+  }
+  if (parrain1Email === parrain2Email) {
+    return res.status(400).json({ error: 'Les deux parrains doivent être différents.' });
+  }
+  if (parrain1Email === email || parrain2Email === email) {
+    return res.status(400).json({ error: 'Vous ne pouvez pas être votre propre parrain.' });
+  }
 
   try {
     var existing = await pool.query("SELECT id FROM membres WHERE email = $1", [email]);
     if (existing.rows.length > 0) return res.status(400).json({ error: 'Cet email est déjà utilisé.' });
 
+    var parrains = await pool.query(
+      "SELECT id, email FROM membres WHERE email = ANY($1) AND COALESCE(statut, 'actif') = 'actif'",
+      [[parrain1Email, parrain2Email]]
+    );
+    var parrain1 = parrains.rows.find(function(r) { return r.email === parrain1Email; });
+    var parrain2 = parrains.rows.find(function(r) { return r.email === parrain2Email; });
+    if (!parrain1 || !parrain2) {
+      return res.status(400).json({ error: 'Les deux parrains doivent être des membres déjà actifs de Lybok.' });
+    }
+
     var hashedPwd = await bcrypt.hash(password, 10);
     var newId = crypto.randomUUID();
 
     const result = await pool.query(
-      `INSERT INTO membres (id, nom, prenom, email, telephone, role, mot_de_passe, date_inscription, date_modification)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-       RETURNING id, nom, prenom, email, role`,
-      [newId, nom, prenom, email, telephone, role, hashedPwd]
+      `INSERT INTO membres (id, nom, prenom, email, telephone, ville, domaine_activite, role, statut, parrain1_id, parrain2_id, mot_de_passe, date_inscription, date_modification)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'en_attente', $9, $10, $11, NOW(), NOW())
+       RETURNING id, nom, prenom, email, role, statut`,
+      [newId, nom, prenom, email, telephone, ville, domaineActivite, role, parrain1.id, parrain2.id, hashedPwd]
     );
-    
+
     var nouveau = result.rows[0];
-    var token = jwt.sign({ 
-      id: nouveau.id, 
-      email: nouveau.email, 
-      role: nouveau.role, 
-      nom: nouveau.nom, 
-      prenom: nouveau.prenom 
-    }, JWT_SECRET, { expiresIn: '24h' });
-    
-    console.log('✅ Nouveau membre créé :', prenom, nom, '-', email);
-    res.status(201).json({ token, membre: nouveau });
+    console.log('📋 Nouveau dossier en attente :', prenom, nom, '-', email, '| parrains:', parrain1Email, parrain2Email);
+    // Pas de token émis : le compte n'est pas actif tant que le bureau ne l'a pas validé.
+    res.status(201).json({ membre: nouveau });
   } catch(err) {
     console.error('Erreur register:', err.message);
     res.status(500).json({ error: 'Erreur: ' + err.message });
+  }
+});
+
+// GET /api/membres/en-attente — dossiers en attente de validation (admin/trésorier)
+app.get('/api/membres/en-attente', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user || (user.role !== 'admin' && user.role !== 'tresorier')) {
+    return res.status(403).json({ error: 'Accès refusé.' });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT m.id, m.nom, m.prenom, m.email, m.telephone, m.ville, m.domaine_activite, m.date_inscription,
+              p1.nom AS parrain1_nom, p1.prenom AS parrain1_prenom, p1.email AS parrain1_email,
+              p2.nom AS parrain2_nom, p2.prenom AS parrain2_prenom, p2.email AS parrain2_email
+       FROM membres m
+       LEFT JOIN membres p1 ON m.parrain1_id = p1.id
+       LEFT JOIN membres p2 ON m.parrain2_id = p2.id
+       WHERE m.statut = 'en_attente'
+       ORDER BY m.date_inscription ASC`
+    );
+    res.json(result.rows);
+  } catch(err) {
+    console.error('Erreur GET membres en-attente:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/membres/:id/valider — le bureau valide le dossier (admin/trésorier)
+app.patch('/api/membres/:id/valider', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user || (user.role !== 'admin' && user.role !== 'tresorier')) {
+    return res.status(403).json({ error: 'Accès refusé.' });
+  }
+  try {
+    const result = await pool.query(
+      "UPDATE membres SET statut = 'actif', date_modification = NOW() WHERE id = $1 AND statut = 'en_attente' RETURNING id, nom, prenom, email, statut",
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Dossier en attente introuvable.' });
+    console.log('✅ Dossier validé par le bureau:', result.rows[0].email);
+    res.json(result.rows[0]);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/membres/:id/refuser — le bureau refuse le dossier (admin/trésorier)
+app.patch('/api/membres/:id/refuser', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user || (user.role !== 'admin' && user.role !== 'tresorier')) {
+    return res.status(403).json({ error: 'Accès refusé.' });
+  }
+  try {
+    const result = await pool.query(
+      "UPDATE membres SET statut = 'refuse', date_modification = NOW() WHERE id = $1 AND statut = 'en_attente' RETURNING id, nom, prenom, email, statut",
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Dossier en attente introuvable.' });
+    console.log('⛔ Dossier refusé par le bureau:', result.rows[0].email);
+    res.json(result.rows[0]);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

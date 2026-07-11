@@ -5,6 +5,8 @@ export interface User {
   avatar: string;
   role: 'admin' | 'tresorier' | 'membre';
   joinDate: string;
+  activityDomain: string;
+  city: string;
 }
 
 export interface Message {
