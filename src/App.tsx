@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Message } from './types';
-import { currentUser, members, initialMessages, contributions, cagnotes, announcements } from './mockData';
+import { currentUser, members, contributions, cagnotes, announcements } from './mockData';
 
 // =====================================================
 // ICONS
@@ -33,6 +32,11 @@ const HeartIcon = () => (
 const UsersIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+  </svg>
+);
+const MailIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
   </svg>
 );
 const DBIcon = () => (
@@ -325,7 +329,7 @@ function LoginPage({ onLogin }: { onLogin: (user: typeof currentUser) => void })
           <p style={{ color:'#9aa5b4', fontSize:13, marginBottom:20, marginTop:0 }}>
             {tab === 'login'
               ? 'Connectez-vous à votre espace tontine'
-              : 'Ajoutez un membre dans dbo.membres'}
+              : 'Votre dossier sera examiné par le bureau après parrainage'}
           </p>
 
           {/* Alertes */}
@@ -564,6 +568,7 @@ function Navigation({ currentPage, setCurrentPage, user, onLogout }: {
   const navItems = [
     { id: 'home',      label: 'Accueil',         icon: <HomeIcon /> },
     { id: 'chat',      label: 'Chat',             icon: <ChatIcon /> },
+    { id: 'messages',  label: 'Messages',         icon: <MailIcon /> },
     { id: 'subscribe', label: 'Cagnote',          icon: <WalletIcon /> },
     { id: 'dashboard', label: 'Tableau de bord',  icon: <ChartIcon /> },
     { id: 'aids',      label: 'Aides',            icon: <HeartIcon /> },
@@ -777,24 +782,63 @@ function HomePage({ setCurrentPage }: { setCurrentPage: (page: string) => void }
 // =====================================================
 // CHAT
 // =====================================================
-function ChatPage({ user }: { user: typeof currentUser }) {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+interface GroupMessage {
+  id: number;
+  membre_id: string;
+  contenu: string;
+  type_message: string;
+  date_creation: string;
+  nom: string | null;
+  prenom: string | null;
+  avatar: string | null;
+}
+interface RealMember { id: string; nom: string; prenom: string; avatar: string; }
+
+function ChatPage({ user, ws }: { user: typeof currentUser; ws: WebSocket | null }) {
+  const [messages, setMessages] = useState<GroupMessage[]>([]);
+  const [realMembers, setRealMembers] = useState<RealMember[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const addMessage = (m: GroupMessage) => {
+    setMessages(prev => (prev.some(x => x.id === m.id) ? prev : [...prev, m]));
+  };
+
+  useEffect(() => {
+    fetch(`${API_BASE}/messages?limit=100`).then(r => r.json()).then(setMessages).catch(() => {});
+    fetch(`${API_BASE}/membres`).then(r => r.json()).then(setRealMembers).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!ws) return;
+    const handler = (evt: MessageEvent) => {
+      try {
+        const data = JSON.parse(evt.data);
+        if (data.type === 'message_groupe') addMessage(data.message);
+      } catch {}
+    };
+    ws.addEventListener('message', handler);
+    return () => ws.removeEventListener('message', handler);
+  }, [ws]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  const handleSend = () => {
-    if (!newMessage.trim()) return;
-    setMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      userId: user.id,
-      userName: user.name,
-      content: newMessage,
-      timestamp: new Date(),
-      type: 'message',
-    }]);
+  const handleSend = async () => {
+    const contenu = newMessage.trim();
+    if (!contenu || sending) return;
     setNewMessage('');
+    setSending(true);
+    try {
+      const res = await fetch(`${API_BASE}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('lybok_token') || '') },
+        body: JSON.stringify({ contenu }),
+      });
+      const data = await res.json();
+      if (res.ok) addMessage(data);
+    } catch {}
+    setSending(false);
   };
 
   return (
@@ -805,11 +849,11 @@ function ChatPage({ user }: { user: typeof currentUser }) {
             <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center text-lg flex-shrink-0">💬</div>
             <div className="min-w-0">
               <h3 className="font-bold truncate">Discussion du groupe</h3>
-              <p className="text-xs text-slate-400">{members.length} membres</p>
+              <p className="text-xs text-slate-400">{realMembers.length} membres {ws ? '• 🟢 en direct' : ''}</p>
             </div>
           </div>
           <div className="hidden sm:flex -space-x-2 flex-shrink-0">
-            {members.slice(0, 5).map((m, idx) => (
+            {realMembers.slice(0, 5).map((m, idx) => (
               <div key={m.id} className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center text-sm border-2 border-slate-800" style={{ zIndex: 10 - idx }}>{m.avatar}</div>
             ))}
           </div>
@@ -817,23 +861,17 @@ function ChatPage({ user }: { user: typeof currentUser }) {
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-gray-50">
         {messages.map(msg => {
-          const isMe = msg.userId === user.id;
-          const member = members.find(m => m.id === msg.userId);
-          if (msg.type === 'info') return (
-            <div key={msg.id} className="flex justify-center">
-              <div className="bg-amber-100 text-amber-800 px-4 py-2 rounded-full text-xs font-medium max-w-md text-center">{msg.content}</div>
-            </div>
-          );
+          const isMe = msg.membre_id === user.id;
           return (
             <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
               <div className={`flex items-end space-x-2 max-w-[75%] ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                {!isMe && <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center text-sm flex-shrink-0">{member?.avatar}</div>}
+                {!isMe && <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center text-sm flex-shrink-0">{msg.avatar}</div>}
                 <div>
-                  {!isMe && <p className="text-xs text-gray-400 mb-1 ml-1 font-medium">{msg.userName}</p>}
+                  {!isMe && <p className="text-xs text-gray-400 mb-1 ml-1 font-medium">{msg.prenom} {msg.nom}</p>}
                   <div className={`px-4 py-3 rounded-2xl ${isMe ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-br-md' : 'bg-white text-gray-800 shadow-sm border border-gray-100 rounded-bl-md'}`}>
-                    <p className="text-sm">{msg.content}</p>
+                    <p className="text-sm">{msg.contenu}</p>
                   </div>
-                  <p className={`text-[10px] text-gray-400 mt-1 ${isMe ? 'text-right mr-1' : 'ml-1'}`}>{msg.timestamp.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' })}</p>
+                  <p className={`text-[10px] text-gray-400 mt-1 ${isMe ? 'text-right mr-1' : 'ml-1'}`}>{new Date(msg.date_creation).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' })}</p>
                 </div>
               </div>
             </div>
@@ -850,10 +888,191 @@ function ChatPage({ user }: { user: typeof currentUser }) {
             className="flex-1 px-4 py-3 bg-gray-100 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all"
             rows={1}
           />
-          <button onClick={handleSend} disabled={!newMessage.trim()} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white p-3 rounded-xl hover:from-amber-600 hover:to-orange-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20">
+          <button onClick={handleSend} disabled={!newMessage.trim() || sending} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white p-3 rounded-xl hover:from-amber-600 hover:to-orange-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
+// MESSAGES PRIVÉS
+// =====================================================
+interface Conversation {
+  autre_id: string;
+  dernier_message: string;
+  derniere_date: string;
+  nom: string; prenom: string; avatar: string;
+  non_lus: string;
+}
+interface PrivateMessage {
+  id: number;
+  membre_id: string;
+  destinataire_id: string;
+  contenu: string;
+  date_creation: string;
+}
+
+function MessagesPage({ user, ws }: { user: typeof currentUser; ws: WebSocket | null }) {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [allMembers, setAllMembers]       = useState<RealMember[]>([]);
+  const [selectedId, setSelectedId]       = useState<string | null>(null);
+  const [thread, setThread]               = useState<PrivateMessage[]>([]);
+  const [newMessage, setNewMessage]       = useState('');
+  const [sending, setSending]             = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + (localStorage.getItem('lybok_token') || ''),
+  });
+
+  const loadConversations = () => {
+    fetch(`${API_BASE}/messages/conversations`, { headers: authHeaders() })
+      .then(r => r.json()).then(d => Array.isArray(d) && setConversations(d)).catch(() => {});
+  };
+
+  useEffect(() => {
+    loadConversations();
+    fetch(`${API_BASE}/membres`).then(r => r.json()).then(setAllMembers).catch(() => {});
+  }, []);
+
+  const openConversation = async (id: string) => {
+    setSelectedId(id);
+    try {
+      const res = await fetch(`${API_BASE}/messages/prives/${id}`, { headers: authHeaders() });
+      const data = await res.json();
+      setThread(Array.isArray(data) ? data : []);
+      await fetch(`${API_BASE}/messages/prives/${id}/lu`, { method: 'PATCH', headers: authHeaders() });
+      setConversations(prev => prev.map(c => (c.autre_id === id ? { ...c, non_lus: '0' } : c)));
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (!ws) return;
+    const handler = (evt: MessageEvent) => {
+      try {
+        const data = JSON.parse(evt.data);
+        if (data.type !== 'message_prive') return;
+        const m = data.message;
+        const otherParty = m.membre_id === user.id ? m.destinataire_id : m.membre_id;
+        if (otherParty === selectedId) {
+          setThread(prev => (prev.some(x => x.id === m.id) ? prev : [...prev, m]));
+          if (m.membre_id === selectedId) {
+            fetch(`${API_BASE}/messages/prives/${selectedId}/lu`, { method: 'PATCH', headers: authHeaders() }).catch(() => {});
+          }
+        }
+        loadConversations();
+      } catch {}
+    };
+    ws.addEventListener('message', handler);
+    return () => ws.removeEventListener('message', handler);
+  }, [ws, selectedId]);
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [thread]);
+
+  const handleSend = async () => {
+    const contenu = newMessage.trim();
+    if (!contenu || !selectedId || sending) return;
+    setNewMessage('');
+    setSending(true);
+    try {
+      const res = await fetch(`${API_BASE}/messages`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ contenu, destinataire_id: selectedId }),
+      });
+      const data = await res.json();
+      if (res.ok) { setThread(prev => (prev.some(x => x.id === data.id) ? prev : [...prev, data])); loadConversations(); }
+    } catch {}
+    setSending(false);
+  };
+
+  const otherMembers = allMembers.filter(m => m.id !== user.id);
+  const contacted = new Set(conversations.map(c => c.autre_id));
+  const rows = [
+    ...conversations,
+    ...otherMembers.filter(m => !contacted.has(m.id)).map(m => ({
+      autre_id: m.id, nom: m.nom, prenom: m.prenom, avatar: m.avatar,
+      dernier_message: '', derniere_date: '', non_lus: '0',
+    })),
+  ];
+  const selected = rows.find(r => r.autre_id === selectedId);
+
+  return (
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden h-[calc(100vh-8rem)] flex">
+      {/* Liste des conversations */}
+      <div className={`w-full sm:w-80 flex-shrink-0 border-r border-gray-100 flex-col ${selectedId ? 'hidden sm:flex' : 'flex'}`}>
+        <div className="flex-shrink-0 p-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-800">✉️ Messages privés</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {rows.length === 0 && <p className="text-sm text-gray-400 p-4">Aucun autre membre pour l'instant.</p>}
+          {rows.map(r => (
+            <button
+              key={r.autre_id}
+              onClick={() => openConversation(r.autre_id)}
+              className={`w-full flex items-center gap-3 p-4 text-left border-b border-gray-50 hover:bg-gray-50 transition-colors ${selectedId === r.autre_id ? 'bg-amber-50' : ''}`}
+            >
+              <div className="w-10 h-10 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center text-lg flex-shrink-0">{r.avatar}</div>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-gray-800 text-sm truncate">{r.prenom} {r.nom}</p>
+                <p className="text-xs text-gray-400 truncate">{r.dernier_message || 'Démarrer la conversation'}</p>
+              </div>
+              {Number(r.non_lus) > 0 && (
+                <span className="bg-amber-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">{r.non_lus}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Fil de discussion */}
+      <div className={`flex-1 min-w-0 flex-col ${selectedId ? 'flex' : 'hidden sm:flex'}`}>
+        {!selected ? (
+          <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">Sélectionnez une conversation</div>
+        ) : (
+          <>
+            <div className="flex-shrink-0 bg-gradient-to-r from-slate-800 to-slate-900 text-white p-4 border-b border-white/5 flex items-center gap-3">
+              <button onClick={() => setSelectedId(null)} className="sm:hidden text-slate-300">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+              </button>
+              <div className="w-9 h-9 bg-slate-700 rounded-full flex items-center justify-center text-lg flex-shrink-0">{selected.avatar}</div>
+              <p className="font-bold truncate">{selected.prenom} {selected.nom}</p>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-gray-50">
+              {thread.map(msg => {
+                const isMe = msg.membre_id === user.id;
+                return (
+                  <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                    <div className="max-w-[75%]">
+                      <div className={`px-4 py-3 rounded-2xl ${isMe ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-br-md' : 'bg-white text-gray-800 shadow-sm border border-gray-100 rounded-bl-md'}`}>
+                        <p className="text-sm">{msg.contenu}</p>
+                      </div>
+                      <p className={`text-[10px] text-gray-400 mt-1 ${isMe ? 'text-right mr-1' : 'ml-1'}`}>{new Date(msg.date_creation).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' })}</p>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef}/>
+            </div>
+            <div className="flex-shrink-0 p-4 bg-white border-t border-gray-100">
+              <div className="flex items-center space-x-3">
+                <textarea
+                  value={newMessage} onChange={e => setNewMessage(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  placeholder={`Écrire à ${selected.prenom}...`}
+                  className="flex-1 px-4 py-3 bg-gray-100 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all"
+                  rows={1}
+                />
+                <button onClick={handleSend} disabled={!newMessage.trim() || sending} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white p-3 rounded-xl hover:from-amber-600 hover:to-orange-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1145,16 +1364,27 @@ function App() {
   const [isLoggedIn, setIsLoggedIn]     = useState(false);
   const [user, setUser]                 = useState<typeof currentUser | null>(null);
   const [currentPage, setCurrentPage]   = useState('home');
+  const [ws, setWs]                     = useState<WebSocket | null>(null);
 
   const handleLogin   = (u: typeof currentUser) => { setUser(u); setIsLoggedIn(true); };
   const handleLogout  = () => { setIsLoggedIn(false); setUser(null); setCurrentPage('home'); localStorage.removeItem('lybok_token'); };
+
+  useEffect(() => {
+    if (!isLoggedIn || !user) { setWs(null); return; }
+    const token = localStorage.getItem('lybok_token');
+    if (!token) return;
+    const socket = new WebSocket(`ws://localhost:3001/ws?token=${encodeURIComponent(token)}`);
+    setWs(socket);
+    return () => { socket.close(); };
+  }, [isLoggedIn, user]);
 
   if (!isLoggedIn || !user) return <LoginPage onLogin={handleLogin}/>;
 
   const renderPage = () => {
     switch (currentPage) {
       case 'home':      return <HomePage setCurrentPage={setCurrentPage}/>;
-      case 'chat':      return <ChatPage user={user}/>;
+      case 'chat':      return <ChatPage user={user} ws={ws}/>;
+      case 'messages':  return <MessagesPage user={user} ws={ws}/>;
       case 'subscribe': return <SubscribePage/>;
       case 'dashboard': return <DashboardPage user={user}/>;
       case 'aids':      return <AidsPage/>;
@@ -1171,7 +1401,7 @@ function App() {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <Navigation currentPage={currentPage} setCurrentPage={setCurrentPage} user={user} onLogout={handleLogout}/>
       <main className="max-w-7xl mx-auto px-4 py-6">{renderPage()}</main>
-      <div className="fixed bottom-4 right-4 z-50">
+      <div className="hidden sm:block fixed bottom-4 right-4 z-50">
         <div className="flex items-center space-x-2 px-4 py-2.5 rounded-full shadow-xl bg-gradient-to-r from-slate-800 to-slate-900 text-white border border-white/10">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
           <DBIcon/>

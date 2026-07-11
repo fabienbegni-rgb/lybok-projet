@@ -12,6 +12,8 @@ const jwt        = require('jsonwebtoken');
 const path       = require('path');
 const crypto     = require('crypto');
 const nodemailer = require('nodemailer');
+const http       = require('http');
+const { WebSocketServer, WebSocket } = require('ws');
 require('dotenv').config();
 
 const app  = express();
@@ -91,10 +93,48 @@ async function sendEmail(to, subject, html) {
 // =====================================================
 // MIDDLEWARE AUTH
 // =====================================================
-function decodeToken(req) {
-  var token = (req.headers['authorization'] || '').replace('Bearer ', '');
+function verifyToken(token) {
   if (!token) return null;
   try { return jwt.verify(token, JWT_SECRET); } catch(e) { return null; }
+}
+
+function decodeToken(req) {
+  return verifyToken((req.headers['authorization'] || '').replace('Bearer ', ''));
+}
+
+// =====================================================
+// WEBSOCKET — temps réel (chat groupe + messages privés)
+// =====================================================
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: '/ws' });
+const clientsByUser = new Map(); // membre_id -> Set<WebSocket>
+
+wss.on('connection', function(ws, req) {
+  var url = new URL(req.url, 'http://localhost');
+  var user = verifyToken(url.searchParams.get('token'));
+  if (!user) { ws.close(4001, 'Non authentifié'); return; }
+
+  if (!clientsByUser.has(user.id)) clientsByUser.set(user.id, new Set());
+  clientsByUser.get(user.id).add(ws);
+
+  ws.on('close', function() {
+    var set = clientsByUser.get(user.id);
+    if (!set) return;
+    set.delete(ws);
+    if (set.size === 0) clientsByUser.delete(user.id);
+  });
+});
+
+function sendToUser(userId, payload) {
+  var set = clientsByUser.get(userId);
+  if (!set) return;
+  var data = JSON.stringify(payload);
+  set.forEach(function(ws) { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
+}
+
+function broadcastAll(payload) {
+  var data = JSON.stringify(payload);
+  wss.clients.forEach(function(ws) { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
 }
 
 // =====================================================
@@ -287,7 +327,7 @@ app.patch('/api/membres/:id/refuser', async function(req, res) {
 app.get('/api/membres', async function(req, res) {
   try {
     const result = await pool.query(
-      "SELECT id, nom, prenom, email, telephone, avatar, role, date_inscription FROM membres ORDER BY nom, prenom"
+      "SELECT id, nom, prenom, email, telephone, avatar, role, date_inscription FROM membres WHERE COALESCE(statut, 'actif') = 'actif' ORDER BY nom, prenom"
     );
     res.json(result.rows);
   } catch (err) {
@@ -432,6 +472,7 @@ app.post('/api/cotisations', async function(req, res) {
 // MESSAGES (CHAT)
 // =====================================================
 
+// GET /api/messages — chat de groupe (destinataire_id IS NULL)
 app.get('/api/messages', async function(req, res) {
   var limit = parseInt(req.query.limit) || 100;
   try {
@@ -440,38 +481,120 @@ app.get('/api/messages', async function(req, res) {
               mb.nom, mb.prenom, mb.avatar
        FROM messages m
        LEFT JOIN membres mb ON m.membre_id = mb.id
+       WHERE m.destinataire_id IS NULL
        ORDER BY m.date_creation DESC
        LIMIT $1`,
       [limit]
     );
-    res.json(result.rows);
-  } catch(err) { 
-    console.error('Erreur GET messages:', err.message); 
-    res.status(500).json({ error: err.message }); 
+    res.json(result.rows.reverse());
+  } catch(err) {
+    console.error('Erreur GET messages:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
+// GET /api/messages/conversations — liste des conversations privées de l'utilisateur connecté
+app.get('/api/messages/conversations', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user) return res.status(401).json({ error: 'Authentification requise.' });
+  try {
+    const result = await pool.query(
+      `WITH mine AS (
+         SELECT *, CASE WHEN membre_id = $1 THEN destinataire_id ELSE membre_id END AS autre_id
+         FROM messages
+         WHERE destinataire_id IS NOT NULL AND (membre_id = $1 OR destinataire_id = $1)
+       )
+       SELECT DISTINCT ON (autre_id)
+              autre_id, contenu AS dernier_message, date_creation AS derniere_date,
+              mb.nom, mb.prenom, mb.avatar,
+              (SELECT COUNT(*) FROM mine m2 WHERE m2.autre_id = mine.autre_id AND m2.destinataire_id = $1 AND m2.est_lu = false) AS non_lus
+       FROM mine
+       LEFT JOIN membres mb ON mb.id = mine.autre_id
+       ORDER BY autre_id, date_creation DESC`,
+      [user.id]
+    );
+    res.json(result.rows);
+  } catch(err) {
+    console.error('Erreur GET conversations:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/messages/prives/:autreId — fil de discussion avec un membre donné
+app.get('/api/messages/prives/:autreId', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user) return res.status(401).json({ error: 'Authentification requise.' });
+  try {
+    const result = await pool.query(
+      `SELECT m.id, m.membre_id, m.destinataire_id, m.contenu, m.type_message, m.est_lu, m.date_creation,
+              mb.nom, mb.prenom, mb.avatar
+       FROM messages m
+       LEFT JOIN membres mb ON m.membre_id = mb.id
+       WHERE (m.membre_id = $1 AND m.destinataire_id = $2) OR (m.membre_id = $2 AND m.destinataire_id = $1)
+       ORDER BY m.date_creation ASC`,
+      [user.id, req.params.autreId]
+    );
+    res.json(result.rows);
+  } catch(err) {
+    console.error('Erreur GET messages privés:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/messages/prives/:autreId/lu — marquer les messages reçus de ce membre comme lus
+app.patch('/api/messages/prives/:autreId/lu', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user) return res.status(401).json({ error: 'Authentification requise.' });
+  try {
+    await pool.query(
+      `UPDATE messages SET est_lu = true WHERE membre_id = $1 AND destinataire_id = $2 AND est_lu = false`,
+      [req.params.autreId, user.id]
+    );
+    res.json({ success: true });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/messages — envoi (groupe si destinataire_id absent, privé sinon)
 app.post('/api/messages', async function(req, res) {
   var user = decodeToken(req);
   if (!user) return res.status(401).json({ error: 'Authentification requise.' });
 
   var contenu = req.body.contenu || req.body.message || '';
-  var membre_id = req.body.membre_id;
+  var destinataire_id = req.body.destinataire_id || null;
   var type_message = req.body.type_message || 'message';
 
   if (!contenu.trim()) return res.status(400).json({ error: 'Contenu vide.' });
+  if (destinataire_id === user.id) return res.status(400).json({ error: 'Impossible de vous écrire à vous-même.' });
 
   try {
-    const result = await pool.query(
-      `INSERT INTO messages (membre_id, contenu, type_message, date_creation)
-       VALUES ($1, $2, $3, NOW())
-       RETURNING *`,
-      [membre_id, contenu, type_message]
+    const inserted = await pool.query(
+      `INSERT INTO messages (membre_id, destinataire_id, contenu, type_message, est_lu, date_creation)
+       VALUES ($1, $2, $3, $4, false, NOW())
+       RETURNING id`,
+      [user.id, destinataire_id, contenu, type_message]
     );
-    res.status(201).json(result.rows[0]);
-  } catch(err) { 
-    console.error('Erreur POST message:', err.message); 
-    res.status(500).json({ error: err.message }); 
+    const full = await pool.query(
+      `SELECT m.id, m.membre_id, m.destinataire_id, m.contenu, m.type_message, m.est_lu, m.date_creation,
+              mb.nom, mb.prenom, mb.avatar
+       FROM messages m LEFT JOIN membres mb ON m.membre_id = mb.id
+       WHERE m.id = $1`,
+      [inserted.rows[0].id]
+    );
+    var message = full.rows[0];
+
+    if (destinataire_id) {
+      sendToUser(destinataire_id, { type: 'message_prive', message });
+      sendToUser(user.id, { type: 'message_prive', message });
+    } else {
+      broadcastAll({ type: 'message_groupe', message });
+    }
+
+    res.status(201).json(message);
+  } catch(err) {
+    console.error('Erreur POST message:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -600,7 +723,7 @@ async function start() {
     
     initEmail();
     
-    app.listen(PORT, function() {
+    server.listen(PORT, function() {
       console.log('\n=====================================================');
       console.log('  🚀 LYBOK v3.0 — SERVEUR DÉMARRÉ !');
       console.log('=====================================================');
@@ -608,6 +731,7 @@ async function start() {
       console.log('  🖥️  Host    :', process.env.DB_HOST);
       console.log('  🌐 App     : http://localhost:' + PORT);
       console.log('  📡 API     : http://localhost:' + PORT + '/api');
+      console.log('  🔌 WS      : ws://localhost:' + PORT + '/ws');
       console.log('=====================================================\n');
     });
   } catch(err) { 
