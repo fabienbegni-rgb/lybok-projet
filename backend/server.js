@@ -17,6 +17,7 @@ require('dotenv').config();
 const app  = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || '@FABINHO1604';
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
 
 // =====================================================
 // POSTGRESQL POOL
@@ -110,7 +111,8 @@ app.post('/api/auth/login', async function(req, res) {
     
     var valid = false;
     try { valid = await bcrypt.compare(password, m.mot_de_passe); } catch(e) {}
-    if (!valid && password !== m.mot_de_passe && password !== 'demo1234') {
+    if (!valid && DEMO_MODE && password === 'demo1234') valid = true;
+    if (!valid) {
       return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
     }
     
@@ -298,6 +300,11 @@ app.get('/api/cotisations', async function(req, res) {
 });
 
 app.post('/api/cotisations', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user || (user.role !== 'admin' && user.role !== 'tresorier')) {
+    return res.status(403).json({ error: 'Accès refusé.' });
+  }
+
   var membre_id    = req.body.membre_id;
   var cagnotte_id  = req.body.cagnotte_id;
   var montant      = req.body.montant;
@@ -350,6 +357,9 @@ app.get('/api/messages', async function(req, res) {
 });
 
 app.post('/api/messages', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user) return res.status(401).json({ error: 'Authentification requise.' });
+
   var contenu = req.body.contenu || req.body.message || '';
   var membre_id = req.body.membre_id;
   var type_message = req.body.type_message || 'message';
@@ -391,6 +401,11 @@ app.get('/api/actualites', async function(req, res) {
 });
 
 app.post('/api/actualites', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user || (user.role !== 'admin' && user.role !== 'tresorier')) {
+    return res.status(403).json({ error: 'Accès refusé.' });
+  }
+
   var titre = req.body.titre;
   var contenu = req.body.contenu;
   var auteur_id = req.body.auteur_id;
