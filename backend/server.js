@@ -16,8 +16,13 @@ require('dotenv').config();
 
 const app  = express();
 const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET || '@FABINHO1604';
+const JWT_SECRET = process.env.JWT_SECRET;
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
+
+if (!JWT_SECRET) {
+  console.error('❌ JWT_SECRET manquant dans .env — arrêt du serveur.');
+  process.exit(1);
+}
 
 // =====================================================
 // POSTGRESQL POOL
