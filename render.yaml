@@ -1,0 +1,57 @@
+databases:
+  - name: lybok-db
+    plan: free
+    databaseName: lybok
+    user: lybok
+
+services:
+  - type: web
+    name: lybok
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build && mkdir -p backend/public && cp dist/index.html backend/public/index.html && cd backend && npm install
+    startCommand: node backend/server.js
+    healthCheckPath: /api
+    envVars:
+      - key: NODE_VERSION
+        value: 22.20.0
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DEMO_MODE
+        value: false
+      - key: DB_HOST
+        fromDatabase:
+          name: lybok-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: lybok-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: lybok-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: lybok-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: lybok-db
+          property: password
+      - key: EMAIL_SERVICE
+        value: gmail
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: SMS_PROVIDER
+        value: orange
+      - key: ORANGE_CLIENT_ID
+        sync: false
+      - key: ORANGE_CLIENT_SECRET
+        sync: false
+      - key: SMS_SENDER
+        value: Lybok
