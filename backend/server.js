@@ -327,7 +327,7 @@ app.patch('/api/membres/:id/refuser', async function(req, res) {
 app.get('/api/membres', async function(req, res) {
   try {
     const result = await pool.query(
-      "SELECT id, nom, prenom, email, telephone, avatar, role, date_inscription FROM membres WHERE COALESCE(statut, 'actif') = 'actif' ORDER BY nom, prenom"
+      "SELECT id, nom, prenom, email, telephone, avatar, role, ville, domaine_activite, date_inscription FROM membres WHERE COALESCE(statut, 'actif') = 'actif' ORDER BY nom, prenom"
     );
     res.json(result.rows);
   } catch (err) {

@@ -792,7 +792,7 @@ interface GroupMessage {
   prenom: string | null;
   avatar: string | null;
 }
-interface RealMember { id: string; nom: string; prenom: string; avatar: string; }
+interface RealMember { id: string; nom: string; prenom: string; avatar: string; ville?: string; domaine_activite?: string; }
 
 function ChatPage({ user, ws }: { user: typeof currentUser; ws: WebSocket | null }) {
   const [messages, setMessages] = useState<GroupMessage[]>([]);
@@ -915,7 +915,10 @@ interface PrivateMessage {
   date_creation: string;
 }
 
-function MessagesPage({ user, ws }: { user: typeof currentUser; ws: WebSocket | null }) {
+function MessagesPage({ user, ws, openMemberId, onOpened }: {
+  user: typeof currentUser; ws: WebSocket | null;
+  openMemberId?: string | null; onOpened?: () => void;
+}) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [allMembers, setAllMembers]       = useState<RealMember[]>([]);
   const [selectedId, setSelectedId]       = useState<string | null>(null);
@@ -949,6 +952,12 @@ function MessagesPage({ user, ws }: { user: typeof currentUser; ws: WebSocket | 
       setConversations(prev => prev.map(c => (c.autre_id === id ? { ...c, non_lus: '0' } : c)));
     } catch {}
   };
+
+  useEffect(() => {
+    if (!openMemberId) return;
+    openConversation(openMemberId);
+    onOpened?.();
+  }, [openMemberId]);
 
   useEffect(() => {
     if (!ws) return;
@@ -1210,21 +1219,35 @@ function AidsPage() {
   );
 }
 
-function MembersPage() {
+function MembersPage({ currentUserId, onMessage }: { currentUserId: string; onMessage: (memberId: string) => void }) {
+  const [realMembers, setRealMembers] = useState<RealMember[]>([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/membres`).then(r => r.json()).then(d => Array.isArray(d) && setRealMembers(d)).catch(() => {});
+  }, []);
+
   return (
     <div className="space-y-6">
       <p className="text-sm text-gray-400">Annuaire du réseau — seules les informations utiles au réseau sont visibles ici (voir la politique de confidentialité).</p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {members.map(member => (
+        {realMembers.map(member => (
           <div key={member.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 hover:shadow-xl transition-all hover:-translate-y-0.5">
             <div className="flex items-center space-x-4">
               <div className="w-14 h-14 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-xl flex items-center justify-center text-3xl">{member.avatar}</div>
-              <div>
-                <h3 className="font-bold text-gray-800">{member.name}</h3>
-                <p className="text-xs text-gray-400">{member.activityDomain}</p>
-                <p className="text-xs text-gray-400">📍 {member.city}</p>
+              <div className="min-w-0">
+                <h3 className="font-bold text-gray-800 truncate">{member.prenom} {member.nom}</h3>
+                <p className="text-xs text-gray-400 truncate">{member.domaine_activite}</p>
+                <p className="text-xs text-gray-400 truncate">📍 {member.ville}</p>
               </div>
             </div>
+            {member.id !== currentUserId && (
+              <button
+                onClick={() => onMessage(member.id)}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-amber-50 text-amber-700 py-2 rounded-xl text-sm font-semibold hover:bg-amber-100 transition-all"
+              >
+                <MailIcon/> Message
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -1365,8 +1388,10 @@ function App() {
   const [user, setUser]                 = useState<typeof currentUser | null>(null);
   const [currentPage, setCurrentPage]   = useState('home');
   const [ws, setWs]                     = useState<WebSocket | null>(null);
+  const [messageTarget, setMessageTarget] = useState<string | null>(null);
 
   const handleLogin   = (u: typeof currentUser) => { setUser(u); setIsLoggedIn(true); };
+  const openConversationWith = (memberId: string) => { setMessageTarget(memberId); setCurrentPage('messages'); };
   const handleLogout  = () => { setIsLoggedIn(false); setUser(null); setCurrentPage('home'); localStorage.removeItem('lybok_token'); };
 
   useEffect(() => {
@@ -1384,11 +1409,11 @@ function App() {
     switch (currentPage) {
       case 'home':      return <HomePage setCurrentPage={setCurrentPage}/>;
       case 'chat':      return <ChatPage user={user} ws={ws}/>;
-      case 'messages':  return <MessagesPage user={user} ws={ws}/>;
+      case 'messages':  return <MessagesPage user={user} ws={ws} openMemberId={messageTarget} onOpened={() => setMessageTarget(null)}/>;
       case 'subscribe': return <SubscribePage/>;
       case 'dashboard': return <DashboardPage user={user}/>;
       case 'aids':      return <AidsPage/>;
-      case 'members':   return <MembersPage/>;
+      case 'members':   return <MembersPage currentUserId={user.id} onMessage={openConversationWith}/>;
       case 'validation':
         return (user.role === 'admin' || user.role === 'tresorier')
           ? <ValidationPage/>
