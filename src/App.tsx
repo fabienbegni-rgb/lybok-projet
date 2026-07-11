@@ -40,9 +40,16 @@ const DBIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
   </svg>
 );
+const ClipboardCheckIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+  </svg>
+);
 
 const formatFCFA = (amount: number) =>
   new Intl.NumberFormat('fr-FR').format(amount) + ' FCFA';
+
+const API_BASE = 'http://localhost:3001/api';
 
 // =====================================================
 // LOGO LYBOK (SVG animé)
@@ -235,10 +242,9 @@ function LoginPage({ onLogin }: { onLogin: (user: typeof currentUser) => void })
       }}>
 
         {/* ── Panneau gauche (branding) ── */}
-        <div style={{
+        <div className="p-6 sm:p-10 lg:p-12" style={{
           flex:'1 1 340px',
           background:`linear-gradient(145deg, #1a8f5c, #126640)`,
-          padding:'3rem 2.5rem',
           display:'flex', flexDirection:'column',
           justifyContent:'space-between',
           minHeight:480, position:'relative', overflow:'hidden',
@@ -290,7 +296,7 @@ function LoginPage({ onLogin }: { onLogin: (user: typeof currentUser) => void })
         </div>
 
         {/* ── Panneau droit (formulaire) ── */}
-        <div style={{ flex:'1 1 320px', padding:'2.5rem', display:'flex', flexDirection:'column', justifyContent:'center' }}>
+        <div className="p-6 sm:p-10" style={{ flex:'1 1 320px', display:'flex', flexDirection:'column', justifyContent:'center' }}>
 
           {/* Onglets */}
           <div style={{ display:'flex', background:'#f4f6f9', borderRadius:12, padding:4, marginBottom:22, gap:4 }}>
@@ -554,6 +560,7 @@ function Navigation({ currentPage, setCurrentPage, user, onLogout }: {
   onLogout: () => void;
 }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const navItems = [
     { id: 'home',      label: 'Accueil',         icon: <HomeIcon /> },
     { id: 'chat',      label: 'Chat',             icon: <ChatIcon /> },
@@ -561,17 +568,20 @@ function Navigation({ currentPage, setCurrentPage, user, onLogout }: {
     { id: 'dashboard', label: 'Tableau de bord',  icon: <ChartIcon /> },
     { id: 'aids',      label: 'Aides',            icon: <HeartIcon /> },
     { id: 'members',   label: 'Membres',          icon: <UsersIcon /> },
+    ...(user.role === 'admin' || user.role === 'tresorier'
+      ? [{ id: 'validation', label: 'Validations', icon: <ClipboardCheckIcon /> }]
+      : []),
   ];
 
   return (
     <nav className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white shadow-xl sticky top-0 z-50 border-b border-white/5">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setCurrentPage('home')}>
+          <div className="flex items-center space-x-3 cursor-pointer min-w-0" onClick={() => setCurrentPage('home')}>
             <LybokLogo size={40}/>
-            <div>
-              <h1 className="font-black text-lg leading-tight tracking-tight">Ly<span className="text-amber-400">bok</span></h1>
-              <p className="text-[10px] text-slate-400 font-medium tracking-wider uppercase">Tontine solidaire</p>
+            <div className="min-w-0">
+              <h1 className="font-black text-lg leading-tight tracking-tight truncate">Ly<span className="text-amber-400">bok</span></h1>
+              <p className="hidden sm:block text-[10px] text-slate-400 font-medium tracking-wider uppercase truncate">Tontine solidaire</p>
             </div>
           </div>
 
@@ -625,21 +635,37 @@ function Navigation({ currentPage, setCurrentPage, user, onLogout }: {
             )}
           </div>
 
-          <div className="lg:hidden flex items-center space-x-1">
+          <button
+            onClick={() => setShowMobileMenu(v => !v)}
+            className="lg:hidden p-2 rounded-lg hover:bg-white/5 transition-all text-slate-300"
+            aria-label="Menu"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {showMobileMenu
+                ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />}
+            </svg>
+          </button>
+        </div>
+
+        {showMobileMenu && (
+          <div className="lg:hidden pb-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
             {navItems.map(item => (
               <button
                 key={item.id}
-                onClick={() => setCurrentPage(item.id)}
-                className={`p-2 rounded-lg transition-all ${
-                  currentPage === item.id ? 'bg-amber-500/20 text-amber-400' : 'hover:bg-white/5 text-slate-400'
+                onClick={() => { setCurrentPage(item.id); setShowMobileMenu(false); }}
+                className={`flex items-center space-x-2 px-3 py-2.5 rounded-lg transition-all text-sm ${
+                  currentPage === item.id
+                    ? 'bg-amber-500/20 text-amber-400 font-semibold'
+                    : 'hover:bg-white/5 text-slate-300'
                 }`}
-                title={item.label}
               >
                 {item.icon}
+                <span className="truncate">{item.label}</span>
               </button>
             ))}
           </div>
-        </div>
+        )}
       </div>
     </nav>
   );
@@ -772,24 +798,24 @@ function ChatPage({ user }: { user: typeof currentUser }) {
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden h-[calc(100vh-8rem)]">
-      <div className="bg-gradient-to-r from-slate-800 to-slate-900 text-white p-4 border-b border-white/5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center text-lg">💬</div>
-            <div>
-              <h3 className="font-bold">Discussion du groupe</h3>
+    <div className="flex flex-col bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden h-[calc(100vh-8rem)]">
+      <div className="flex-shrink-0 bg-gradient-to-r from-slate-800 to-slate-900 text-white p-4 border-b border-white/5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center text-lg flex-shrink-0">💬</div>
+            <div className="min-w-0">
+              <h3 className="font-bold truncate">Discussion du groupe</h3>
               <p className="text-xs text-slate-400">{members.length} membres</p>
             </div>
           </div>
-          <div className="flex -space-x-2">
+          <div className="hidden sm:flex -space-x-2 flex-shrink-0">
             {members.slice(0, 5).map((m, idx) => (
               <div key={m.id} className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center text-sm border-2 border-slate-800" style={{ zIndex: 10 - idx }}>{m.avatar}</div>
             ))}
           </div>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 h-[calc(100vh-18rem)]">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-gray-50">
         {messages.map(msg => {
           const isMe = msg.userId === user.id;
           const member = members.find(m => m.id === msg.userId);
@@ -815,7 +841,7 @@ function ChatPage({ user }: { user: typeof currentUser }) {
         })}
         <div ref={messagesEndRef}/>
       </div>
-      <div className="p-4 bg-white border-t border-gray-100">
+      <div className="flex-shrink-0 p-4 bg-white border-t border-gray-100">
         <div className="flex items-center space-x-3">
           <textarea
             value={newMessage} onChange={e => setNewMessage(e.target.value)}
@@ -858,9 +884,9 @@ function SubscribePage() {
       <div className="bg-gradient-to-br from-emerald-600 to-teal-500 rounded-2xl p-6 text-white"><h2 className="text-2xl font-bold mb-2">💰 Cotisation Mensuelle</h2><p className="text-emerald-100 text-sm">Contribuez à la cagnote solidaire</p></div>
       <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">Montant</h3>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {amounts.map(a => (
-            <button key={a} onClick={() => setSelectedAmount(a)} className={`py-4 px-3 rounded-xl font-bold transition-all ${selectedAmount===a ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>{formatFCFA(a)}</button>
+            <button key={a} onClick={() => setSelectedAmount(a)} className={`py-4 px-3 rounded-xl font-bold text-sm sm:text-base transition-all ${selectedAmount===a ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>{formatFCFA(a)}</button>
           ))}
         </div>
       </div>
@@ -988,6 +1014,131 @@ function MembersPage() {
 }
 
 // =====================================================
+// VALIDATION DES DOSSIERS EN ATTENTE (bureau)
+// =====================================================
+interface PendingMember {
+  id: string;
+  nom: string;
+  prenom: string;
+  email: string;
+  telephone: string | null;
+  ville: string;
+  domaine_activite: string;
+  date_inscription: string;
+  parrain1_nom: string | null;
+  parrain1_prenom: string | null;
+  parrain1_email: string | null;
+  parrain2_nom: string | null;
+  parrain2_prenom: string | null;
+  parrain2_email: string | null;
+}
+
+function ValidationPage() {
+  const [pending, setPending]   = useState<PendingMember[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
+  const [actingOn, setActingOn] = useState<string | null>(null);
+
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + (localStorage.getItem('lybok_token') || ''),
+  });
+
+  const loadPending = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/membres/en-attente`, { headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+      setPending(data);
+    } catch (err: any) {
+      setError(err?.message || 'Serveur inaccessible.');
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadPending(); }, []);
+
+  const handleDecision = async (id: string, decision: 'valider' | 'refuser') => {
+    setActingOn(id);
+    try {
+      const res = await fetch(`${API_BASE}/membres/${id}/${decision}`, { method: 'PATCH', headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+      setPending(prev => prev.filter(p => p.id !== id));
+    } catch (err: any) {
+      setError(err?.message || 'Serveur inaccessible.');
+    }
+    setActingOn(null);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-white">
+        <h2 className="text-2xl font-bold mb-2">📋 Dossiers en attente</h2>
+        <p className="text-slate-300 text-sm">Chaque candidature doit être appuyée par deux parrains actifs avant validation par le bureau.</p>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">⚠️ {error}</div>
+      )}
+
+      {loading ? (
+        <div className="text-center text-gray-400 py-12">Chargement...</div>
+      ) : pending.length === 0 ? (
+        <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-100 text-center text-gray-400">
+          Aucun dossier en attente pour le moment.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {pending.map(p => (
+            <div key={p.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h3 className="font-bold text-gray-800 text-lg">{p.prenom} {p.nom}</h3>
+                  <p className="text-sm text-gray-500">{p.email}{p.telephone ? ` • ${p.telephone}` : ''}</p>
+                  <p className="text-sm text-gray-500">{p.domaine_activite} • 📍 {p.ville}</p>
+                  <p className="text-xs text-gray-400 mt-1">Soumis le {new Date(p.date_inscription).toLocaleDateString('fr-FR')}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleDecision(p.id, 'valider')}
+                    disabled={actingOn === p.id}
+                    className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-all disabled:opacity-50"
+                  >
+                    ✅ Valider
+                  </button>
+                  <button
+                    onClick={() => handleDecision(p.id, 'refuser')}
+                    disabled={actingOn === p.id}
+                    className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-100 transition-all disabled:opacity-50"
+                  >
+                    ✕ Refuser
+                  </button>
+                </div>
+              </div>
+              <div className="border-t border-gray-100 mt-4 pt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Parrain 1</p>
+                  <p className="font-medium text-gray-700">{p.parrain1_prenom} {p.parrain1_nom}</p>
+                  <p className="text-gray-400 text-xs">{p.parrain1_email}</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Parrain 2</p>
+                  <p className="font-medium text-gray-700">{p.parrain2_prenom} {p.parrain2_nom}</p>
+                  <p className="text-gray-400 text-xs">{p.parrain2_email}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =====================================================
 // APP PRINCIPALE
 // =====================================================
 function App() {
@@ -1008,6 +1159,10 @@ function App() {
       case 'dashboard': return <DashboardPage user={user}/>;
       case 'aids':      return <AidsPage/>;
       case 'members':   return <MembersPage/>;
+      case 'validation':
+        return (user.role === 'admin' || user.role === 'tresorier')
+          ? <ValidationPage/>
+          : <HomePage setCurrentPage={setCurrentPage}/>;
       default:          return <HomePage setCurrentPage={setCurrentPage}/>;
     }
   };
