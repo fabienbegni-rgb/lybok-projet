@@ -3,3 +3,7 @@
 .env.*
 !.env.example
 "- Copie.env"
+
+# Build artifacts / dependencies (root frontend)
+node_modules/
+dist/

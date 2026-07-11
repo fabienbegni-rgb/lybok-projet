@@ -154,7 +154,9 @@ app.post('/api/auth/register', async function(req, res) {
   var email      = (req.body.email || '').trim().toLowerCase();
   var telephone  = req.body.telephone || null;
   var password   = req.body.password || req.body.mot_de_passe;
-  var role       = req.body.role || 'membre';
+  // L'inscription publique ne peut créer que des membres standards.
+  // La promotion admin/trésorier se fait ensuite via PUT /api/membres/:id (réservé admin/trésorier).
+  var role       = 'membre';
 
   if (!nom || !email || !password) return res.status(400).json({ error: 'nom, email et password obligatoires.' });
 

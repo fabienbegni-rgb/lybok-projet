@@ -11,13 +11,13 @@ export const currentUser: User = {
 
 export const members: User[] = [
   currentUser,
-  { id: '2', name: 'Fatoumata Keita', email: 'fatoumata@email.com', avatar: '👩🏿', role: 'member', joinDate: '2020-03-20' },
-  { id: '3', name: 'Ibrahim Touré', email: 'ibrahim@email.com', avatar: '👨🏿‍🏫', role: 'member', joinDate: '2020-05-10' },
-  { id: '4', name: 'Aïssatou Bah', email: 'aissatou@email.com', avatar: '👩🏿‍🎓', role: 'member', joinDate: '2020-07-25' },
-  { id: '5', name: 'Moussa Condé', email: 'moussa@email.com', avatar: '👨🏿‍💻', role: 'member', joinDate: '2021-01-05' },
-  { id: '6', name: 'Mariam Sylla', email: 'mariam@email.com', avatar: '👩🏿‍🔬', role: 'member', joinDate: '2021-04-18' },
-  { id: '7', name: 'Ousmane Camara', email: 'ousmane@email.com', avatar: '👨🏿‍⚕️', role: 'member', joinDate: '2021-08-12' },
-  { id: '8', name: 'Kadiatou Diallo', email: 'kadiatou@email.com', avatar: '👩🏿‍🎨', role: 'member', joinDate: '2022-01-20' },
+  { id: '2', name: 'Fatoumata Keita', email: 'fatoumata@email.com', avatar: '👩🏿', role: 'membre', joinDate: '2020-03-20' },
+  { id: '3', name: 'Ibrahim Touré', email: 'ibrahim@email.com', avatar: '👨🏿‍🏫', role: 'membre', joinDate: '2020-05-10' },
+  { id: '4', name: 'Aïssatou Bah', email: 'aissatou@email.com', avatar: '👩🏿‍🎓', role: 'membre', joinDate: '2020-07-25' },
+  { id: '5', name: 'Moussa Condé', email: 'moussa@email.com', avatar: '👨🏿‍💻', role: 'membre', joinDate: '2021-01-05' },
+  { id: '6', name: 'Mariam Sylla', email: 'mariam@email.com', avatar: '👩🏿‍🔬', role: 'membre', joinDate: '2021-04-18' },
+  { id: '7', name: 'Ousmane Camara', email: 'ousmane@email.com', avatar: '👨🏿‍⚕️', role: 'membre', joinDate: '2021-08-12' },
+  { id: '8', name: 'Kadiatou Diallo', email: 'kadiatou@email.com', avatar: '👩🏿‍🎨', role: 'membre', joinDate: '2022-01-20' },
 ];
 
 export const initialMessages: Message[] = [

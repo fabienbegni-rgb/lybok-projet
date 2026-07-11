@@ -21,7 +21,7 @@ export interface DBMember {
   email: string;
   phone?: string;
   avatar: string;
-  role: 'admin' | 'member';
+  role: 'admin' | 'tresorier' | 'membre';
   is_active: boolean;
   created_at: string;
 }
