@@ -53,7 +53,15 @@ const ClipboardCheckIcon = () => (
 const formatFCFA = (amount: number) =>
   new Intl.NumberFormat('fr-FR').format(amount) + ' FCFA';
 
-const API_BASE = 'http://localhost:3001/api';
+// En dev, le frontend (Vite, :5173) et le backend (:3001) sont sur des ports séparés.
+// En production (Render), un seul service sert les deux depuis la même origine.
+// (Détection à l'exécution plutôt que import.meta.env.DEV : ce dernier s'est révélé
+// peu fiable avec cette version de Vite — renvoyait DEV=true même en build de prod.)
+const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const API_BASE = IS_LOCAL_DEV ? 'http://localhost:3001/api' : '/api';
+const WS_BASE = IS_LOCAL_DEV
+  ? 'ws://localhost:3001/ws'
+  : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
 
 // =====================================================
 // LOGO LYBOK (SVG animé)
@@ -137,7 +145,7 @@ function LoginPage({ onLogin }: { onLogin: (user: typeof currentUser) => void })
     setIsLoading(true);
     setLoginError('');
     try {
-      const res  = await fetch('http://localhost:3001/api/auth/login', {
+      const res  = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -184,7 +192,7 @@ function LoginPage({ onLogin }: { onLogin: (user: typeof currentUser) => void })
     if (p1 === rEmail.trim().toLowerCase() || p2 === rEmail.trim().toLowerCase()) { setRError('Vous ne pouvez pas être votre propre parrain.'); return; }
     setRLoading(true);
     try {
-      const res  = await fetch('http://localhost:3001/api/auth/register', {
+      const res  = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1398,7 +1406,7 @@ function App() {
     if (!isLoggedIn || !user) { setWs(null); return; }
     const token = localStorage.getItem('lybok_token');
     if (!token) return;
-    const socket = new WebSocket(`ws://localhost:3001/ws?token=${encodeURIComponent(token)}`);
+    const socket = new WebSocket(`${WS_BASE}?token=${encodeURIComponent(token)}`);
     setWs(socket);
     return () => { socket.close(); };
   }, [isLoggedIn, user]);
