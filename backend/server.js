@@ -407,8 +407,37 @@ app.get('/api/cagnottes/:id', async function(req, res) {
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cagnotte non trouvée.' });
     res.json(result.rows[0]);
-  } catch(err) { 
-    res.status(500).json({ error: err.message }); 
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/cagnottes — créer une nouvelle cagnotte (admin/trésorier)
+app.post('/api/cagnottes', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user || (user.role !== 'admin' && user.role !== 'tresorier')) {
+    return res.status(403).json({ error: 'Accès refusé.' });
+  }
+  var mois = req.body.mois;
+  var annee = req.body.annee;
+  var montant_cible = req.body.montant_cible;
+  var montant_cotisation = req.body.montant_cotisation;
+  var date_limite = req.body.date_limite || null;
+
+  if (!mois || !annee || !montant_cible || !montant_cotisation) {
+    return res.status(400).json({ error: 'mois, annee, montant_cible et montant_cotisation sont obligatoires.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO cagnottes (mois, annee, montant_cible, montant_collecte, montant_cotisation, statut, date_limite, date_creation)
+       VALUES ($1, $2, $3, 0, $4, 'active', $5, NOW())
+       RETURNING *`,
+      [mois, annee, montant_cible, montant_cotisation, date_limite]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -419,7 +448,7 @@ app.get('/api/cagnottes/:id', async function(req, res) {
 app.get('/api/cotisations', async function(req, res) {
   try {
     const result = await pool.query(
-      `SELECT c.id, c.membre_id, c.montant, c.mode_paiement, c.statut, c.date_paiement, c.date_creation,
+      `SELECT c.id, c.membre_id, c.cagnotte_id, c.montant, c.mode_paiement, c.reference_paiement, c.statut, c.date_paiement, c.date_creation,
               m.nom, m.prenom, m.email, m.avatar,
               cag.mois, cag.annee
        FROM cotisations c
@@ -434,35 +463,100 @@ app.get('/api/cotisations', async function(req, res) {
   }
 });
 
+// POST /api/cotisations
+// - Un membre normal déclare SA PROPRE cotisation : statut 'en_attente', en attendant
+//   vérification du paiement mobile money par le trésorier.
+// - Un admin/trésorier peut enregistrer directement une cotisation pour un AUTRE membre
+//   (ex: paiement en espèces constaté sur place) : statut 'paye' immédiat, crédité tout de suite.
 app.post('/api/cotisations', async function(req, res) {
   var user = decodeToken(req);
-  if (!user || (user.role !== 'admin' && user.role !== 'tresorier')) {
-    return res.status(403).json({ error: 'Accès refusé.' });
+  if (!user) return res.status(401).json({ error: 'Authentification requise.' });
+
+  var cagnotte_id        = req.body.cagnotte_id;
+  var montant            = req.body.montant;
+  var mode_paiement      = req.body.mode_paiement || 'especes';
+  var reference_paiement = req.body.reference_paiement || null;
+  var isTresorerie   = user.role === 'admin' || user.role === 'tresorier';
+  var membre_id      = (isTresorerie && req.body.membre_id) ? req.body.membre_id : user.id;
+  var recordedByStaffForSomeoneElse = isTresorerie && membre_id !== user.id;
+
+  if (!cagnotte_id || !montant) {
+    return res.status(400).json({ error: 'cagnotte_id et montant sont obligatoires.' });
   }
 
-  var membre_id    = req.body.membre_id;
-  var cagnotte_id  = req.body.cagnotte_id;
-  var montant      = req.body.montant;
-  var mode_paiement = req.body.mode_paiement || 'especes';
-
   try {
+    var statut = recordedByStaffForSomeoneElse ? 'paye' : 'en_attente';
+
     const result = await pool.query(
-      `INSERT INTO cotisations (membre_id, cagnotte_id, montant, mode_paiement, statut, date_paiement, date_creation, date_modification)
-       VALUES ($1, $2, $3, $4, 'paye', NOW(), NOW(), NOW())
+      `INSERT INTO cotisations (membre_id, cagnotte_id, montant, mode_paiement, reference_paiement, statut, date_paiement, date_creation, date_modification)
+       VALUES ($1, $2, $3, $4, $5, $6, ${recordedByStaffForSomeoneElse ? 'NOW()' : 'NULL'}, NOW(), NOW())
        RETURNING *`,
-      [membre_id, cagnotte_id, montant, mode_paiement]
+      [membre_id, cagnotte_id, montant, mode_paiement, reference_paiement, statut]
     );
 
-    // Notification
+    if (recordedByStaffForSomeoneElse) {
+      await pool.query("UPDATE cagnottes SET montant_collecte = montant_collecte + $1 WHERE id = $2", [montant, cagnotte_id]);
+    }
+
     try {
       await pool.query(
         `INSERT INTO notifications (membre_id, titre, contenu, type, est_lu, date_creation)
          VALUES ($1, $2, $3, $4, false, NOW())`,
-        [membre_id, 'Cotisation reçue', 'Votre cotisation a été enregistrée.', 'success']
+        [membre_id,
+         recordedByStaffForSomeoneElse ? 'Cotisation reçue' : 'Cotisation déclarée',
+         recordedByStaffForSomeoneElse ? 'Votre cotisation a été enregistrée.' : 'Votre déclaration a été reçue, en attente de confirmation du trésorier.',
+         'success']
       );
     } catch(e) {}
 
     res.status(201).json(result.rows[0]);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/cotisations/:id/confirmer — le trésorier confirme un paiement déclaré (admin/trésorier)
+app.patch('/api/cotisations/:id/confirmer', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user || (user.role !== 'admin' && user.role !== 'tresorier')) {
+    return res.status(403).json({ error: 'Accès refusé.' });
+  }
+  try {
+    const cotisation = await pool.query(
+      "UPDATE cotisations SET statut = 'paye', date_paiement = NOW(), date_modification = NOW() WHERE id = $1 AND statut = 'en_attente' RETURNING *",
+      [req.params.id]
+    );
+    if (cotisation.rows.length === 0) return res.status(404).json({ error: 'Cotisation en attente introuvable.' });
+
+    var c = cotisation.rows[0];
+    await pool.query("UPDATE cagnottes SET montant_collecte = montant_collecte + $1 WHERE id = $2", [c.montant, c.cagnotte_id]);
+    try {
+      await pool.query(
+        `INSERT INTO notifications (membre_id, titre, contenu, type, est_lu, date_creation)
+         VALUES ($1, 'Cotisation confirmée', 'Votre cotisation a été vérifiée et confirmée par le trésorier.', 'success', false, NOW())`,
+        [c.membre_id]
+      );
+    } catch(e) {}
+
+    res.json(c);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/cotisations/:id/rejeter — le trésorier rejette une déclaration erronée (admin/trésorier)
+app.patch('/api/cotisations/:id/rejeter', async function(req, res) {
+  var user = decodeToken(req);
+  if (!user || (user.role !== 'admin' && user.role !== 'tresorier')) {
+    return res.status(403).json({ error: 'Accès refusé.' });
+  }
+  try {
+    const result = await pool.query(
+      "UPDATE cotisations SET statut = 'rejete', date_modification = NOW() WHERE id = $1 AND statut = 'en_attente' RETURNING *",
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Cotisation en attente introuvable.' });
+    res.json(result.rows[0]);
   } catch(err) {
     res.status(500).json({ error: err.message });
   }

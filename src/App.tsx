@@ -1098,63 +1098,187 @@ function MessagesPage({ user, ws, openMemberId, onOpened }: {
 // =====================================================
 // PAGES STUB — inchangées
 // =====================================================
+interface Cagnotte {
+  id: number;
+  mois: string;
+  annee: number;
+  montant_cible: number;
+  montant_collecte: number;
+  montant_cotisation: number;
+  statut: string;
+}
+
 function SubscribePage() {
+  const [cagnotte, setCagnotte]             = useState<Cagnotte | null>(null);
+  const [loadingCagnotte, setLoadingCagnotte] = useState(true);
   const [selectedAmount, setSelectedAmount] = useState(25000);
   const [paymentMethod, setPaymentMethod]   = useState('orange');
   const [phoneNumber, setPhoneNumber]       = useState('');
   const [showSuccess, setShowSuccess]       = useState(false);
+  const [error, setError]                   = useState('');
+  const [submitting, setSubmitting]         = useState(false);
   const amounts = [10000,15000,20000,25000,30000,50000];
-  const handleSubscribe = () => { setShowSuccess(true); setTimeout(() => setShowSuccess(false), 5000); };
+
+  useEffect(() => {
+    fetch(`${API_BASE}/cagnottes`)
+      .then(r => r.json())
+      .then((list: Cagnotte[]) => {
+        const active = Array.isArray(list) ? list.find(c => c.statut === 'active') : null;
+        setCagnotte(active || null);
+        if (active) setSelectedAmount(Number(active.montant_cotisation) || 25000);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingCagnotte(false));
+  }, []);
+
+  const handleSubscribe = async () => {
+    if (!cagnotte || submitting) return;
+    setError('');
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/cotisations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('lybok_token') || '') },
+        body: JSON.stringify({
+          cagnotte_id: cagnotte.id,
+          montant: selectedAmount,
+          mode_paiement: paymentMethod,
+          reference_paiement: phoneNumber,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+      setShowSuccess(true);
+      setPhoneNumber('');
+    } catch (err: any) {
+      setError(err?.message || 'Serveur inaccessible.');
+    }
+    setSubmitting(false);
+  };
+
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       {showSuccess && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
-            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4"><span className="text-4xl">✅</span></div>
-            <h3 className="text-xl font-bold text-gray-800 mb-2">Paiement enregistré !</h3>
-            <p className="text-gray-500 mb-6">Votre cotisation de <strong className="text-emerald-600">{formatFCFA(selectedAmount)}</strong> a été enregistrée.</p>
+            <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4"><span className="text-4xl">⏳</span></div>
+            <h3 className="text-xl font-bold text-gray-800 mb-2">Déclaration envoyée !</h3>
+            <p className="text-gray-500 mb-6">Votre cotisation de <strong className="text-emerald-600">{formatFCFA(selectedAmount)}</strong> est en attente de confirmation par le trésorier une fois le paiement mobile money vérifié.</p>
             <button onClick={() => setShowSuccess(false)} className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-emerald-700">Fermer</button>
           </div>
         </div>
       )}
       <div className="bg-gradient-to-br from-emerald-600 to-teal-500 rounded-2xl p-6 text-white"><h2 className="text-2xl font-bold mb-2">💰 Cotisation Mensuelle</h2><p className="text-emerald-100 text-sm">Contribuez à la cagnote solidaire</p></div>
-      <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Montant</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {amounts.map(a => (
-            <button key={a} onClick={() => setSelectedAmount(a)} className={`py-4 px-3 rounded-xl font-bold text-sm sm:text-base transition-all ${selectedAmount===a ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>{formatFCFA(a)}</button>
-          ))}
+
+      {loadingCagnotte ? (
+        <div className="text-center text-gray-400 py-12">Chargement...</div>
+      ) : !cagnotte ? (
+        <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-100 text-center text-gray-400">
+          Aucune cagnotte active pour le moment. Revenez plus tard.
         </div>
-      </div>
-      <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Mode de paiement</h3>
-        <div className="space-y-3">
-          {[{id:'orange',name:'Orange Money',icon:'📱'},{id:'mtn',name:'MTN Mobile Money',icon:'📱'},{id:'wave',name:'Wave',icon:'🌊'}].map(pm => (
-            <button key={pm.id} onClick={() => setPaymentMethod(pm.id)} className={`w-full flex items-center p-4 rounded-xl transition-all ${paymentMethod===pm.id ? 'bg-emerald-50 border-2 border-emerald-500' : 'bg-gray-50 border-2 border-transparent hover:border-gray-200'}`}>
-              <div className="w-12 h-12 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-2xl mr-4">{pm.icon}</div>
-              <div className="text-left"><p className="font-semibold text-gray-800">{pm.name}</p><p className="text-sm text-gray-500">Paiement mobile</p></div>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Numéro de téléphone</h3>
-        <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">+224</span>
-          <input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="6XX XX XX XX" className="w-full pl-20 pr-4 py-4 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all text-lg"/>
-        </div>
-      </div>
-      <button onClick={handleSubscribe} disabled={!phoneNumber} className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-white py-4 rounded-xl font-bold text-lg hover:from-amber-600 hover:to-orange-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-amber-500/25">💳 Procéder au paiement</button>
+      ) : (
+        <>
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+            <h3 className="text-lg font-semibold text-gray-800 mb-1">{cagnotte.mois} {cagnotte.annee}</h3>
+            <p className="text-sm text-gray-400 mb-4">Objectif : {formatFCFA(cagnotte.montant_cible)} — déjà collecté : {formatFCFA(cagnotte.montant_collecte)}</p>
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Montant</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {amounts.map(a => (
+                <button key={a} onClick={() => setSelectedAmount(a)} className={`py-4 px-3 rounded-xl font-bold text-sm sm:text-base transition-all ${selectedAmount===a ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>{formatFCFA(a)}</button>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Mode de paiement</h3>
+            <div className="space-y-3">
+              {[{id:'orange',name:'Orange Money',icon:'📱'},{id:'mtn',name:'MTN Mobile Money',icon:'📱'},{id:'wave',name:'Wave',icon:'🌊'}].map(pm => (
+                <button key={pm.id} onClick={() => setPaymentMethod(pm.id)} className={`w-full flex items-center p-4 rounded-xl transition-all ${paymentMethod===pm.id ? 'bg-emerald-50 border-2 border-emerald-500' : 'bg-gray-50 border-2 border-transparent hover:border-gray-200'}`}>
+                  <div className="w-12 h-12 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-2xl mr-4">{pm.icon}</div>
+                  <div className="text-left"><p className="font-semibold text-gray-800">{pm.name}</p><p className="text-sm text-gray-500">Paiement mobile</p></div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Numéro utilisé pour le paiement</h3>
+            <p className="text-xs text-gray-400 mb-3">Effectuez d'abord le paiement via votre appli mobile money, puis indiquez ici le numéro utilisé — le trésorier vérifiera et confirmera.</p>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">+224</span>
+              <input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="6XX XX XX XX" className="w-full pl-20 pr-4 py-4 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all text-lg"/>
+            </div>
+          </div>
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">⚠️ {error}</div>}
+          <button onClick={handleSubscribe} disabled={!phoneNumber || submitting} className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-white py-4 rounded-xl font-bold text-lg hover:from-amber-600 hover:to-orange-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-amber-500/25">
+            {submitting ? '⟳ Envoi...' : '📨 Déclarer ma cotisation'}
+          </button>
+        </>
+      )}
     </div>
   );
 }
 
+interface Cotisation {
+  id: number;
+  membre_id: string;
+  cagnotte_id: number;
+  montant: number;
+  mode_paiement: string;
+  reference_paiement: string | null;
+  statut: string;
+  date_paiement: string | null;
+  date_creation: string;
+  nom: string; prenom: string; avatar: string;
+  mois: string; annee: number;
+}
+
 function DashboardPage({ user }: { user: typeof currentUser }) {
-  const [selectedMonth, setSelectedMonth] = useState('Janvier');
-  const userContributions = contributions.filter(c => c.userId === user.id);
-  const totalPaid = userContributions.reduce((sum, c) => sum + (c.status === 'paid' ? c.amount : 0), 0);
-  const monthContributions = contributions.filter(c => c.month === selectedMonth && c.year === 2024);
+  const [cotisations, setCotisations]   = useState<Cotisation[]>([]);
+  const [cagnottes, setCagnottes]       = useState<Cagnotte[]>([]);
+  const [selectedCagnotteId, setSelectedCagnotteId] = useState<number | null>(null);
+  const [loading, setLoading]           = useState(true);
+  const [actingOn, setActingOn]         = useState<number | null>(null);
+  const isTresorerie = user.role === 'admin' || user.role === 'tresorier';
+
+  const authHeaders = () => ({ 'Authorization': 'Bearer ' + (localStorage.getItem('lybok_token') || '') });
+
+  const load = () => {
+    Promise.all([
+      fetch(`${API_BASE}/cotisations`, { headers: authHeaders() }).then(r => r.json()),
+      fetch(`${API_BASE}/cagnottes`).then(r => r.json()),
+    ]).then(([cots, cags]) => {
+      setCotisations(Array.isArray(cots) ? cots : []);
+      setCagnottes(Array.isArray(cags) ? cags : []);
+      setSelectedCagnotteId(prev => {
+        if (prev !== null || !Array.isArray(cags) || cags.length === 0) return prev;
+        const active = cags.find((c: Cagnotte) => c.statut === 'active') || cags[0];
+        return active ? active.id : null;
+      });
+    }).catch(() => {}).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
   const roleLabel = user.role === 'admin' ? '👑 Admin' : user.role === 'tresorier' ? '💼 Trésorier' : '👤 Membre';
+  const userCotisations = cotisations.filter(c => c.membre_id === user.id);
+  const totalPaid = userCotisations.reduce((sum, c) => sum + (c.statut === 'paye' ? Number(c.montant) : 0), 0);
+  const currentCagnotte = cagnottes.find(c => c.id === selectedCagnotteId) || null;
+  const monthCotisations = cotisations.filter(c => c.cagnotte_id === selectedCagnotteId);
+  const userPaidCurrentCagnotte = userCotisations.some(c => c.cagnotte_id === currentCagnotte?.id && c.statut === 'paye');
+
+  const handleDecision = async (id: number, decision: 'confirmer' | 'rejeter') => {
+    setActingOn(id);
+    try {
+      await fetch(`${API_BASE}/cotisations/${id}/${decision}`, { method: 'PATCH', headers: authHeaders() });
+      load();
+    } catch {}
+    setActingOn(null);
+  };
+
+  const statutLabel = (s: string) =>
+    s === 'paye' ? '✅ Payé' : s === 'en_attente' ? '⏳ En attente' : s === 'rejete' ? '✕ Rejeté' : s;
+  const statutClass = (s: string) =>
+    s === 'paye' ? 'bg-emerald-100 text-emerald-700' : s === 'en_attente' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
+
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl p-6 text-white">
@@ -1164,33 +1288,51 @@ function DashboardPage({ user }: { user: typeof currentUser }) {
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-100"><p className="text-gray-400 text-xs font-medium uppercase">Mes cotisations</p><p className="text-2xl font-black text-emerald-600 mt-1">{userContributions.length}</p></div>
+        <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-100"><p className="text-gray-400 text-xs font-medium uppercase">Mes cotisations</p><p className="text-2xl font-black text-emerald-600 mt-1">{userCotisations.length}</p></div>
         <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-100"><p className="text-gray-400 text-xs font-medium uppercase">Total versé</p><p className="text-xl font-black text-blue-600 mt-1">{formatFCFA(totalPaid)}</p></div>
-        <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-100"><p className="text-gray-400 text-xs font-medium uppercase">Statut</p><p className="text-lg font-bold text-emerald-600 mt-1">✅ À jour</p></div>
-        <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-100"><p className="text-gray-400 text-xs font-medium uppercase">Rang</p><p className="text-2xl font-black text-purple-600 mt-1">#3</p></div>
+        <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-100"><p className="text-gray-400 text-xs font-medium uppercase">Statut cagnotte en cours</p><p className={`text-lg font-bold mt-1 ${userPaidCurrentCagnotte ? 'text-emerald-600' : 'text-orange-600'}`}>{userPaidCurrentCagnotte ? '✅ À jour' : '⏳ En attente'}</p></div>
+        <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-100"><p className="text-gray-400 text-xs font-medium uppercase">Collecté / cible</p><p className="text-lg font-black text-purple-600 mt-1">{currentCagnotte ? `${formatFCFA(currentCagnotte.montant_collecte)} / ${formatFCFA(currentCagnotte.montant_cible)}` : '—'}</p></div>
       </div>
       <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-bold text-gray-800">📊 Cotisations du mois</h3>
-          <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="bg-gray-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-            <option value="Janvier">Janvier 2024</option><option value="Décembre">Décembre 2023</option><option value="Novembre">Novembre 2023</option>
-          </select>
+          <h3 className="text-xl font-bold text-gray-800">📊 Cotisations</h3>
+          {cagnottes.length > 0 && (
+            <select value={selectedCagnotteId ?? ''} onChange={e => setSelectedCagnotteId(Number(e.target.value))} className="bg-gray-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              {cagnottes.map(c => <option key={c.id} value={c.id}>{c.mois} {c.annee}</option>)}
+            </select>
+          )}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className="border-b border-gray-100"><th className="text-left py-3 px-4 text-gray-400 font-medium text-xs uppercase tracking-wide">Membre</th><th className="text-left py-3 px-4 text-gray-400 font-medium text-xs uppercase tracking-wide">Montant</th><th className="text-left py-3 px-4 text-gray-400 font-medium text-xs uppercase tracking-wide">Date</th><th className="text-left py-3 px-4 text-gray-400 font-medium text-xs uppercase tracking-wide">Statut</th></tr></thead>
-            <tbody>
-              {monthContributions.map(c => (
-                <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                  <td className="py-4 px-4"><div className="flex items-center space-x-3"><span className="text-xl">{members.find(m=>m.id===c.userId)?.avatar}</span><span className="font-medium text-gray-800 text-sm">{c.userName}</span></div></td>
-                  <td className="py-4 px-4 font-bold text-gray-800 text-sm">{formatFCFA(c.amount)}</td>
-                  <td className="py-4 px-4 text-gray-500 text-sm">{c.paymentDate||'—'}</td>
-                  <td className="py-4 px-4"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${c.status==='paid'?'bg-emerald-100 text-emerald-700':c.status==='pending'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700'}`}>{c.status==='paid'?'✅ Payé':c.status==='pending'?'⏳ En attente':'⚠️ En retard'}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+          <div className="text-center text-gray-400 py-8">Chargement...</div>
+        ) : monthCotisations.length === 0 ? (
+          <div className="text-center text-gray-400 py-8">Aucune cotisation pour cette cagnotte.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead><tr className="border-b border-gray-100"><th className="text-left py-3 px-4 text-gray-400 font-medium text-xs uppercase tracking-wide">Membre</th><th className="text-left py-3 px-4 text-gray-400 font-medium text-xs uppercase tracking-wide">Montant</th><th className="text-left py-3 px-4 text-gray-400 font-medium text-xs uppercase tracking-wide">Date</th><th className="text-left py-3 px-4 text-gray-400 font-medium text-xs uppercase tracking-wide">Statut</th>{isTresorerie && <th className="text-left py-3 px-4 text-gray-400 font-medium text-xs uppercase tracking-wide">Actions</th>}</tr></thead>
+              <tbody>
+                {monthCotisations.map(c => (
+                  <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                    <td className="py-4 px-4"><div className="flex items-center space-x-3"><span className="text-xl">{c.avatar}</span><span className="font-medium text-gray-800 text-sm">{c.prenom} {c.nom}</span></div></td>
+                    <td className="py-4 px-4 font-bold text-gray-800 text-sm">{formatFCFA(c.montant)}</td>
+                    <td className="py-4 px-4 text-gray-500 text-sm">{c.date_paiement ? new Date(c.date_paiement).toLocaleDateString('fr-FR') : '—'}</td>
+                    <td className="py-4 px-4"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statutClass(c.statut)}`}>{statutLabel(c.statut)}</span></td>
+                    {isTresorerie && (
+                      <td className="py-4 px-4">
+                        {c.statut === 'en_attente' && (
+                          <div className="flex gap-2">
+                            <button onClick={() => handleDecision(c.id, 'confirmer')} disabled={actingOn === c.id} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">Confirmer</button>
+                            <button onClick={() => handleDecision(c.id, 'rejeter')} disabled={actingOn === c.id} className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-100 disabled:opacity-50">Rejeter</button>
+                          </div>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
