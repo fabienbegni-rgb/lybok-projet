@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { currentUser, members, contributions, cagnotes, announcements } from './mockData';
+import { currentUser } from './mockData';
 
 // =====================================================
 // ICONS
@@ -687,9 +687,35 @@ function Navigation({ currentPage, setCurrentPage, user, onLogout }: {
 // =====================================================
 // PAGE D'ACCUEIL
 // =====================================================
+interface Actualite {
+  id: number;
+  titre: string;
+  contenu: string;
+  priorite: string;
+  date_creation: string;
+  nom: string | null; prenom: string | null; avatar: string | null;
+}
+
 function HomePage({ setCurrentPage }: { setCurrentPage: (page: string) => void }) {
-  const paidThisMonth = contributions.filter(c => c.month === 'Janvier' && c.year === 2024 && c.status === 'paid').length;
-  const currentCagnot = cagnotes.find(c => c.status === 'active');
+  const [realMembers, setRealMembers]     = useState<RealMember[]>([]);
+  const [realCagnottes, setRealCagnottes] = useState<Cagnotte[]>([]);
+  const [realCotisations, setRealCotisations] = useState<Cotisation[]>([]);
+  const [actualites, setActualites]       = useState<Actualite[]>([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/membres`).then(r => r.json()).then(d => Array.isArray(d) && setRealMembers(d)).catch(() => {});
+    fetch(`${API_BASE}/cagnottes`).then(r => r.json()).then(d => Array.isArray(d) && setRealCagnottes(d)).catch(() => {});
+    fetch(`${API_BASE}/cotisations`).then(r => r.json()).then(d => Array.isArray(d) && setRealCotisations(d)).catch(() => {});
+    fetch(`${API_BASE}/actualites`).then(r => r.json()).then(d => Array.isArray(d) && setActualites(d)).catch(() => {});
+  }, []);
+
+  const currentCagnot = realCagnottes.find(c => c.statut === 'active') || null;
+  const cagnotCotisations = currentCagnot ? realCotisations.filter(c => c.cagnotte_id === currentCagnot.id && c.statut === 'paye') : [];
+  const paidThisMonth = cagnotCotisations.length;
+  const totalMembers = realMembers.length;
+  const progressPct = currentCagnot && Number(currentCagnot.montant_cible) > 0
+    ? Math.round((Number(currentCagnot.montant_collecte) / Number(currentCagnot.montant_cible)) * 100)
+    : 0;
 
   return (
     <div className="space-y-8">
@@ -712,25 +738,25 @@ function HomePage({ setCurrentPage }: { setCurrentPage: (page: string) => void }
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
         <div className="bg-white rounded-2xl p-5 shadow-lg border border-gray-100">
           <div className="flex items-center justify-between">
-            <div><p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Membres</p><p className="text-3xl font-black text-gray-800 mt-1">{members.length}</p></div>
+            <div><p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Membres</p><p className="text-3xl font-black text-gray-800 mt-1">{totalMembers}</p></div>
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center text-2xl">👥</div>
           </div>
         </div>
         <div className="bg-white rounded-2xl p-5 shadow-lg border border-gray-100">
           <div className="flex items-center justify-between">
-            <div><p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Cotisations</p><p className="text-3xl font-black text-emerald-600 mt-1">{paidThisMonth}/{members.length}</p></div>
+            <div><p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Cotisations</p><p className="text-3xl font-black text-emerald-600 mt-1">{paidThisMonth}/{totalMembers}</p></div>
             <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl">✅</div>
           </div>
         </div>
         <div className="bg-white rounded-2xl p-5 shadow-lg border border-gray-100">
           <div className="flex items-center justify-between">
-            <div><p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Collecté</p><p className="text-2xl font-black text-blue-600 mt-1">{currentCagnot ? formatFCFA(currentCagnot.collectedAmount) : '0'}</p></div>
+            <div><p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Collecté</p><p className="text-2xl font-black text-blue-600 mt-1">{currentCagnot ? formatFCFA(Number(currentCagnot.montant_collecte)) : '0 FCFA'}</p></div>
             <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center text-2xl">💵</div>
           </div>
         </div>
         <div className="bg-white rounded-2xl p-5 shadow-lg border border-gray-100">
           <div className="flex items-center justify-between">
-            <div><p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Aides</p><p className="text-2xl font-black text-rose-600 mt-1">{formatFCFA(180000)}</p></div>
+            <div><p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Aides versées</p><p className="text-2xl font-black text-rose-600 mt-1">{formatFCFA(0)}</p></div>
             <div className="w-12 h-12 bg-rose-100 rounded-xl flex items-center justify-center text-2xl">❤️</div>
           </div>
         </div>
@@ -740,44 +766,45 @@ function HomePage({ setCurrentPage }: { setCurrentPage: (page: string) => void }
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-xl font-bold text-gray-800">📊 Cagnote en cours</h3>
-            <p className="text-sm text-gray-400">Janvier 2024 — Objectif: {formatFCFA(currentCagnot?.targetAmount || 0)}</p>
+            <p className="text-sm text-gray-400">{currentCagnot ? `${currentCagnot.mois} ${currentCagnot.annee}` : 'Aucune cagnotte active'} — Objectif: {formatFCFA(Number(currentCagnot?.montant_cible) || 0)}</p>
           </div>
-          <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-sm font-semibold">● Active</span>
+          <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-sm font-semibold">{currentCagnot ? '● Active' : '○ Inactive'}</span>
         </div>
         <div className="mb-6">
           <div className="flex justify-between text-sm mb-2">
             <span className="text-gray-500">Progression</span>
-            <span className="font-bold text-emerald-600">{currentCagnot ? Math.round((currentCagnot.collectedAmount / currentCagnot.targetAmount) * 100) : 0}%</span>
+            <span className="font-bold text-emerald-600">{progressPct}%</span>
           </div>
           <div className="h-5 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 rounded-full transition-all duration-1000"
-              style={{ width: `${currentCagnot ? (currentCagnot.collectedAmount / currentCagnot.targetAmount) * 100 : 0}%` }}/>
+              style={{ width: `${progressPct}%` }}/>
           </div>
           <div className="flex justify-between text-sm mt-2">
-            <span className="text-gray-500 font-medium">{formatFCFA(currentCagnot?.collectedAmount || 0)}</span>
-            <span className="text-gray-400">{formatFCFA(currentCagnot?.targetAmount || 0)}</span>
+            <span className="text-gray-500 font-medium">{formatFCFA(Number(currentCagnot?.montant_collecte) || 0)}</span>
+            <span className="text-gray-400">{formatFCFA(Number(currentCagnot?.montant_cible) || 0)}</span>
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
           <div className="bg-emerald-50 rounded-xl p-4"><p className="text-2xl font-black text-emerald-600">{paidThisMonth}</p><p className="text-xs text-gray-500 mt-1">Ayant cotisé</p></div>
-          <div className="bg-orange-50 rounded-xl p-4"><p className="text-2xl font-black text-orange-600">{members.length - paidThisMonth}</p><p className="text-xs text-gray-500 mt-1">En attente</p></div>
-          <div className="bg-blue-50 rounded-xl p-4"><p className="text-2xl font-black text-blue-600">25 000</p><p className="text-xs text-gray-500 mt-1">FCFA / mois</p></div>
-          <div className="bg-rose-50 rounded-xl p-4"><p className="text-2xl font-black text-rose-600">25</p><p className="text-xs text-gray-500 mt-1">Jours restants</p></div>
+          <div className="bg-orange-50 rounded-xl p-4"><p className="text-2xl font-black text-orange-600">{Math.max(totalMembers - paidThisMonth, 0)}</p><p className="text-xs text-gray-500 mt-1">En attente</p></div>
+          <div className="bg-blue-50 rounded-xl p-4"><p className="text-2xl font-black text-blue-600">{currentCagnot ? formatFCFA(Number(currentCagnot.montant_cotisation)) : '—'}</p><p className="text-xs text-gray-500 mt-1">Cotisation / mois</p></div>
+          <div className="bg-rose-50 rounded-xl p-4"><p className="text-2xl font-black text-rose-600">{currentCagnot?.date_limite ? Math.max(Math.ceil((new Date(currentCagnot.date_limite).getTime() - Date.now()) / 86400000), 0) : '—'}</p><p className="text-xs text-gray-500 mt-1">Jours restants</p></div>
         </div>
       </section>
 
       <section className="bg-white rounded-2xl p-6 md:p-8 shadow-lg border border-gray-100">
         <h3 className="text-xl font-bold text-gray-800 mb-6">📢 Annonces récentes</h3>
         <div className="space-y-4">
-          {announcements.map(ann => (
-            <div key={ann.id} className={`p-4 rounded-xl border-l-4 ${ann.priority === 'urgent' ? 'bg-red-50 border-red-500' : ann.priority === 'important' ? 'bg-amber-50 border-amber-500' : 'bg-blue-50 border-blue-500'}`}>
+          {actualites.length === 0 && <p className="text-sm text-gray-400">Aucune annonce pour le moment.</p>}
+          {actualites.map(ann => (
+            <div key={ann.id} className={`p-4 rounded-xl border-l-4 ${ann.priorite === 'urgent' ? 'bg-red-50 border-red-500' : ann.priorite === 'important' ? 'bg-amber-50 border-amber-500' : 'bg-blue-50 border-blue-500'}`}>
               <div className="flex items-start justify-between">
                 <div>
-                  <h4 className="font-semibold text-gray-800">{ann.title}</h4>
-                  <p className="text-gray-600 mt-1 text-sm">{ann.content}</p>
-                  <p className="text-xs text-gray-400 mt-2">Par {ann.author} • {ann.date}</p>
+                  <h4 className="font-semibold text-gray-800">{ann.titre}</h4>
+                  <p className="text-gray-600 mt-1 text-sm">{ann.contenu}</p>
+                  <p className="text-xs text-gray-400 mt-2">Par {ann.prenom} {ann.nom} • {new Date(ann.date_creation).toLocaleDateString('fr-FR')}</p>
                 </div>
-                {ann.priority === 'urgent' && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-medium">Urgent</span>}
+                {ann.priorite === 'urgent' && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-medium">Urgent</span>}
               </div>
             </div>
           ))}
@@ -1106,6 +1133,7 @@ interface Cagnotte {
   montant_collecte: number;
   montant_cotisation: number;
   statut: string;
+  date_limite?: string | null;
 }
 
 function SubscribePage() {
@@ -1203,7 +1231,7 @@ function SubscribePage() {
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Numéro utilisé pour le paiement</h3>
             <p className="text-xs text-gray-400 mb-3">Effectuez d'abord le paiement via votre appli mobile money, puis indiquez ici le numéro utilisé — le trésorier vérifiera et confirmera.</p>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">+224</span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">+237</span>
               <input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="6XX XX XX XX" className="w-full pl-20 pr-4 py-4 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all text-lg"/>
             </div>
           </div>
