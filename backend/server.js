@@ -138,6 +138,31 @@ function broadcastAll(payload) {
 }
 
 // =====================================================
+// MESSAGES SYSTÈME AUTOMATIQUES
+// =====================================================
+const SYSTEM_MEMBRE_ID = '0a14ce0f-0dfc-48de-8682-414c25f6fd99';
+
+async function sendSystemMessage(destinataireId, contenu) {
+  try {
+    const inserted = await pool.query(
+      `INSERT INTO messages (membre_id, destinataire_id, contenu, type_message, est_lu, date_creation)
+       VALUES ($1, $2, $3, 'info', false, NOW())
+       RETURNING id`,
+      [SYSTEM_MEMBRE_ID, destinataireId, contenu]
+    );
+    const full = await pool.query(
+      `SELECT m.id, m.membre_id, m.destinataire_id, m.contenu, m.type_message, m.est_lu, m.date_creation,
+              mb.nom, mb.prenom, mb.avatar
+       FROM messages m LEFT JOIN membres mb ON m.membre_id = mb.id
+       WHERE m.id = $1`,
+      [inserted.rows[0].id]
+    );
+    var message = full.rows[0];
+    sendToUser(destinataireId, { type: 'message_prive', message });
+  } catch(e) { console.error('Erreur message système:', e.message); }
+}
+
+// =====================================================
 // AUTH ROUTES
 // =====================================================
 
@@ -167,6 +192,9 @@ app.post('/api/auth/login', async function(req, res) {
     }
     if (statut === 'refuse') {
       return res.status(403).json({ error: 'Votre demande d\'adhésion a été refusée par le bureau.' });
+    }
+    if (statut === 'systeme') {
+      return res.status(403).json({ error: 'Ce compte ne peut pas être utilisé pour se connecter.' });
     }
 
     var token = jwt.sign({
@@ -509,6 +537,11 @@ app.post('/api/cotisations', async function(req, res) {
       );
     } catch(e) {}
 
+    sendSystemMessage(membre_id, recordedByStaffForSomeoneElse
+      ? `✅ Votre cotisation de ${montant} FCFA a été enregistrée par le trésorier.`
+      : `📨 Votre déclaration de cotisation de ${montant} FCFA a bien été reçue. Elle est en attente de confirmation par le trésorier après vérification du paiement.`
+    );
+
     res.status(201).json(result.rows[0]);
   } catch(err) {
     res.status(500).json({ error: err.message });
@@ -538,6 +571,8 @@ app.patch('/api/cotisations/:id/confirmer', async function(req, res) {
       );
     } catch(e) {}
 
+    sendSystemMessage(c.membre_id, `✅ Votre cotisation de ${c.montant} FCFA a été confirmée par le trésorier. Merci !`);
+
     res.json(c);
   } catch(err) {
     res.status(500).json({ error: err.message });
@@ -556,7 +591,11 @@ app.patch('/api/cotisations/:id/rejeter', async function(req, res) {
       [req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cotisation en attente introuvable.' });
-    res.json(result.rows[0]);
+
+    var rejected = result.rows[0];
+    sendSystemMessage(rejected.membre_id, `⚠️ Votre déclaration de cotisation de ${rejected.montant} FCFA a été rejetée par le trésorier. Contactez-le pour plus d'informations.`);
+
+    res.json(rejected);
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
